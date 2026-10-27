@@ -35,7 +35,7 @@ impl End { fn remote_eye_motion(&mut self, _id: u32, _v: [f64; 3]) {} }
 #[derive(Default)]
 struct Game {
     mobs: Vec<Entity>, dropped: Vec<Entity>, falling: Vec<Entity>, tnts: Vec<Entity>,
-    creatures: Creatures, dragon_fireballs: Vec<Entity>, remote: Option<Remote>,
+    creatures: Creatures, tridents: Vec<Entity>, dragon_fireballs: Vec<Entity>, remote: Option<Remote>,
     potions: Potions, end: End,
 }
 impl Game {
@@ -54,6 +54,13 @@ fn main() {
     }
     game.remote_motion(43, [0.1, 0.2, 0.3]);
     assert_eq!(game.dropped[0].velocity, Vec3::new(0.1, 0.2, 0.3));
+    game.creatures.projectiles.push(Entity { id: 44, ..Entity::default() });
+    game.tridents.push(Entity { id: 45, ..Entity::default() });
+    game.remote_motion(44, [0.4, 0.5, 0.6]);
+    assert_eq!(game.creatures.projectiles[0].velocity, Vec3::new(0.4, 0.5, 0.6));
+    assert_eq!(game.tridents[0].velocity, Vec3::default());
+    game.remote_motion(45, [0.7, 0.8, 0.9]);
+    assert_eq!(game.tridents[0].velocity, Vec3::new(0.7, 0.8, 0.9));
     game.remote_motion(999, [1.0; 3]); // Untracked entity is harmless.
 }
 '''.replace("METHOD", source[start:end])

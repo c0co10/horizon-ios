@@ -3292,7 +3292,9 @@ impl Renderer {
                 .as_ref()
                 .is_some_and(|state| state.0 == finished.dimension)
         {
-            if finished.post.is_none() { self.pack_atlas = None; }
+            if finished.post.is_none() {
+                self.pack_atlas = None;
+            }
             self.shader_report = Some((finished.dimension, finished.programs, finished.notes));
             self.pack_post = Some((finished.dimension, finished.post));
         }
