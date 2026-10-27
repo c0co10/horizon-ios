@@ -6,28 +6,6 @@ use horizon_client::mesher::Vertex;
 use horizon_world::{piston_shape::MovingPistonState, registry::BlockStateId};
 
 impl Game<'_> {
-    /// `PistonBaseBlock.triggerEvent` on a server's client: the server's block event for a piston, run on this
-    /// client's own blocks before the server's block updates arrive, as vanilla's client does. It makes the
-    /// moving-piston entries the renderer slides; without them, pushed blocks jumped to their new place. The
-    /// server plays the sounds, drops the items and sends the game events, so this copy keeps none of its own.
-    pub(super) fn remote_piston_event(&mut self, pos: [i32; 3], a: i32, b: i32) {
-        use horizon_world::level::LevelAccess;
-        let at = horizon_core::position::BlockPos::new(pos[0], pos[1], pos[2]);
-        self.with_level(|behaviours, level, ticks| {
-            let block = behaviours.block(level.block_state(at));
-            ticks
-                .block_events
-                .push(horizon_world::level::BlockEventData {
-                    pos: at,
-                    block,
-                    param_a: a,
-                    param_b: b,
-                });
-            behaviours.run_block_events(level, ticks);
-        });
-        self.level_events.clear();
-        self.sync_moving_pistons();
-    }
     /// `PistonMovingBlockEntity.tick` on a server's client: the slide goes on, and a finished one leaves its
     /// block (which the server's update confirms).
     pub(super) fn tick_remote_pistons(&mut self) {

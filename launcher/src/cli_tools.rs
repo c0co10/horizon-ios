@@ -26,6 +26,12 @@ pub const DESTRUCTIVE: &[&str] = &[
     "servers forget",
     "account sign-out",
     "data delete",
+    "worlds delete",
+    "multiplayer remove",
+    "screenshots delete",
+    "packs remove",
+    "worlds datapack-remove",
+    "unshare-log",
 ];
 
 /// Commands that send something or reach other people: only when the player asks.
@@ -35,6 +41,7 @@ pub const OPEN_WORLD: &[&str] = &[
     "data bug",
     "data benchmark",
     "servers create",
+    "share-log",
 ];
 
 /// A generated tool: its name, the CLI words it runs and the clap command behind them.
@@ -394,7 +401,7 @@ mod tests {
         let kinds = &schema["inputSchema"]["properties"]["kind"]["enum"];
         assert!(
             kinds.as_array().unwrap().contains(&json!("modpack"))
-                && !kinds.as_array().unwrap().contains(&json!("shader")),
+                && kinds.as_array().unwrap().contains(&json!("shader")),
             "{kinds}"
         );
         assert_eq!(

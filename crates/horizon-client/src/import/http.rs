@@ -487,12 +487,14 @@ fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &str) -> io::R
         422 => "Unprocessable Content",
         _ => "Service Unavailable",
     };
-    write!(
-        stream,
+    // Build the response before writing: formatting directly into the socket
+    // can emit a partial status line before an early-refused upload is closed.
+    let response = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}; charset=utf-8\r\nContent-Length: \
          {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
-    )
+    );
+    stream.write_all(response.as_bytes())
 }
 
 /// The page the phone's address serves: choose the archive, type the code, watch it arrive. The

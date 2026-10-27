@@ -3,6 +3,7 @@
 //! consumable's teleport (2017), electric sparks (3002), waxing (3003), wax
 //! off (3004) and scraping (3005).
 use super::Game;
+use horizon_client::items::ItemStack;
 use horizon_client::particles::{self, ParticleOptions, ParticleType};
 use horizon_core::{position::BlockPos, random::RandomSource};
 use horizon_world::level::LevelEvent;
@@ -99,6 +100,101 @@ impl Game<'_> {
             {
                 self.particles.add(&options, [x, y, z], v);
             }
+        }
+    }
+    /// `ServerLevel.globalLevelEvent`: heard by every player on the server
+    /// (an end portal opening, the dragon's death roar): here, and sent to
+    /// every guest whatever their dimension.
+    pub(super) fn global_level_event(&mut self, id: i32, pos: [i32; 3], data: i32) {
+        self.global_level_event_sound(id, pos);
+        if self.audio.capture.is_some() {
+            self.lan_global_events.push((id, pos, data));
+        }
+    }
+    /// `LevelEventHandler.globalLevelEvent`: the sound two blocks from the
+    /// camera towards the event, so it is heard from anywhere.
+    pub(super) fn global_level_event_sound(&mut self, id: i32, pos: [i32; 3]) {
+        let (sound, volume) = match id {
+            1023 => ("minecraft:entity.wither.spawn", 1.0),
+            1028 => ("minecraft:entity.ender_dragon.death", 5.0),
+            1038 => ("minecraft:block.end_portal.spawn", 1.0),
+            _ => return,
+        };
+        let at = self.eye_position().map(|eye| {
+            let d = [
+                f64::from(pos[0]) + 0.5 - eye[0],
+                f64::from(pos[1]) + 0.5 - eye[1],
+                f64::from(pos[2]) + 0.5 - eye[2],
+            ];
+            let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            if length < 1.0e-4 {
+                return eye;
+            }
+            [0, 1, 2].map(|k| eye[k] + d[k] / length * 2.0)
+        });
+        // Each guest plays it from the global packet.
+        self.audio.play_unshared(sound, at, volume, 1.0);
+    }
+    /// `LevelEventHandler.potionSplashParticles` (2002 with `Effect`, 2007
+    /// with `InstantEffect`): eight splash potion crumbs, and a hundred
+    /// spell particles in the potion's colour `data`, flung out in a disc.
+    pub(super) fn potion_splash_particles(&mut self, pos: BlockPos, data: i32, instant: bool) {
+        let ty = if instant {
+            ParticleType::InstantEffect
+        } else {
+            ParticleType::Effect
+        };
+        // Vec3.atBottomCenterOf.
+        let at = [
+            f64::from(pos.x) + 0.5,
+            f64::from(pos.y),
+            f64::from(pos.z) + 0.5,
+        ];
+        let crumb = self.item_particle(&ItemStack::new("minecraft:splash_potion", 1));
+        let r = self.particles.level_random();
+        let crumbs: Vec<[f64; 3]> = (0..8)
+            .map(|_| {
+                [
+                    r.next_gaussian() * 0.15,
+                    r.next_double() * 0.2,
+                    r.next_gaussian() * 0.15,
+                ]
+            })
+            .collect();
+        for v in crumbs {
+            self.particles.add(&crumb, at, v);
+        }
+        let channel = |shift: i32| ((data >> shift) & 0xFF) as f32 / 255.0;
+        let color = [channel(16), channel(8), channel(0)];
+        for _ in 0..100 {
+            let r = self.particles.level_random();
+            let dist = r.next_double() * 4.0;
+            let angle = r.next_double() * std::f64::consts::PI * 2.0;
+            let velocity = [
+                angle.cos() * dist,
+                0.01 + r.next_double() * 0.5,
+                angle.sin() * dist,
+            ];
+            let brightness = 0.75 + r.next_float() * 0.25;
+            let options = ParticleOptions {
+                color: [
+                    color[0] * brightness,
+                    color[1] * brightness,
+                    color[2] * brightness,
+                    1.0,
+                ],
+                scale: dist as f32,
+                ..ParticleOptions::simple(ty)
+            };
+            self.particles.add(
+                &options,
+                [
+                    at[0] + velocity[0] * 0.1,
+                    at[1] + 0.3,
+                    at[2] + velocity[2] * 0.1,
+                ],
+                velocity,
+            );
         }
     }
     /// Queue and play level event `id` at `pos` (`Level.levelEvent`).

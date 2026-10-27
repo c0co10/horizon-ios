@@ -18,185 +18,12 @@ use horizon_core::{
     random::{LegacyRandom, RandomSource},
 };
 use horizon_world::block_collision::BlockCollisionRegistry;
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
-macro_rules! particle_types {
-    ($($variant:ident = $name:literal),* $(,)?) => {
-        /// Vanilla particle types with a client implementation here.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub enum ParticleType { $($variant),* }
-        impl ParticleType {
-            pub const ALL: &'static [ParticleType] = &[$(ParticleType::$variant),*];
-            /// Registry path (`minecraft:<name>`), also the sprite-set file name.
-            pub fn name(self) -> &'static str {
-                match self { $(ParticleType::$variant => $name),* }
-            }
-            pub fn from_name(name: &str) -> Option<Self> {
-                let name = name.strip_prefix("minecraft:").unwrap_or(name);
-                match name { $($name => Some(ParticleType::$variant),)* _ => None }
-            }
-        }
-    };
-}
-particle_types! {
-    Block = "block",
-    BlockCrumble = "block_crumble",
-    Trail = "trail",
-    DustPillar = "dust_pillar",
-    FallingDust = "falling_dust",
-    Smoke = "smoke",
-    LargeSmoke = "large_smoke",
-    WhiteSmoke = "white_smoke",
-    Flame = "flame",
-    SoulFireFlame = "soul_fire_flame",
-    CopperFireFlame = "copper_fire_flame",
-    SmallFlame = "small_flame",
-    Lava = "lava",
-    DrippingWater = "dripping_water",
-    FallingWater = "falling_water",
-    DrippingLava = "dripping_lava",
-    FallingLava = "falling_lava",
-    LandingLava = "landing_lava",
-    DrippingHoney = "dripping_honey",
-    FallingHoney = "falling_honey",
-    LandingHoney = "landing_honey",
-    FallingNectar = "falling_nectar",
-    FallingSporeBlossom = "falling_spore_blossom",
-    SporeBlossomAir = "spore_blossom_air",
-    DrippingObsidianTear = "dripping_obsidian_tear",
-    FallingObsidianTear = "falling_obsidian_tear",
-    LandingObsidianTear = "landing_obsidian_tear",
-    DrippingDripstoneWater = "dripping_dripstone_water",
-    FallingDripstoneWater = "falling_dripstone_water",
-    DrippingDripstoneLava = "dripping_dripstone_lava",
-    FallingDripstoneLava = "falling_dripstone_lava",
-    Splash = "splash",
-    Rain = "rain",
-    Bubble = "bubble",
-    SulfurBubbles = "sulfur_bubbles",
-    BubblePop = "bubble_pop",
-    BubbleColumnUp = "bubble_column_up",
-    CurrentDown = "current_down",
-    Underwater = "underwater",
-    Portal = "portal",
-    ReversePortal = "reverse_portal",
-    Enchant = "enchant",
-    Nautilus = "nautilus",
-    VaultConnection = "vault_connection",
-    Crit = "crit",
-    EnchantedHit = "enchanted_hit",
-    DamageIndicator = "damage_indicator",
-    Heart = "heart",
-    AngryVillager = "angry_villager",
-    HappyVillager = "happy_villager",
-    Composter = "composter",
-    Mycelium = "mycelium",
-    Dolphin = "dolphin",
-    EggCrack = "egg_crack",
-    Poof = "poof",
-    Explosion = "explosion",
-    ExplosionEmitter = "explosion_emitter",
-    CampfireCosySmoke = "campfire_cosy_smoke",
-    CampfireSignalSmoke = "campfire_signal_smoke",
-    Note = "note",
-    Dust = "dust",
-    TotemOfUndying = "totem_of_undying",
-    Firework = "firework",
-    EndRod = "end_rod",
-    Ash = "ash",
-    WhiteAsh = "white_ash",
-    CrimsonSpore = "crimson_spore",
-    WarpedSpore = "warped_spore",
-    CherryLeaves = "cherry_leaves",
-    PaleOakLeaves = "pale_oak_leaves",
-    TintedLeaves = "tinted_leaves",
-    Effect = "effect",
-    InstantEffect = "instant_effect",
-    EntityEffect = "entity_effect",
-    Witch = "witch",
-    Infested = "infested",
-    Cloud = "cloud",
-    Sneeze = "sneeze",
-    Snowflake = "snowflake",
-    Soul = "soul",
-    SculkSoul = "sculk_soul",
-    DragonBreath = "dragon_breath",
-    Gust = "gust",
-    SmallGust = "small_gust",
-    GustEmitterLarge = "gust_emitter_large",
-    GustEmitterSmall = "gust_emitter_small",
-    DustColorTransition = "dust_color_transition",
-    SculkCharge = "sculk_charge",
-    SculkChargePop = "sculk_charge_pop",
-    Shriek = "shriek",
-    SonicBoom = "sonic_boom",
-    Vibration = "vibration",
-    SweepAttack = "sweep_attack",
-    Glow = "glow",
-    WaxOn = "wax_on",
-    WaxOff = "wax_off",
-    ElectricSpark = "electric_spark",
-    Scrape = "scrape",
-    SquidInk = "squid_ink",
-    GlowSquidInk = "glow_squid_ink",
-    Item = "item",
-    ItemSlime = "item_slime",
-    ItemSnowball = "item_snowball",
-    ItemCobweb = "item_cobweb",
-    SulfurCubeGoo = "sulfur_cube_goo",
-    Flash = "flash",
-    Firefly = "firefly",
-    TrialSpawnerDetection = "trial_spawner_detection",
-    TrialSpawnerDetectionOminous = "trial_spawner_detection_ominous",
-    TrialOmen = "trial_omen",
-    RaidOmen = "raid_omen",
-    OminousSpawning = "ominous_spawning",
-    Spit = "spit",
-    Fishing = "fishing",
-    DustPlume = "dust_plume",
-    RedPoplarLeaves = "red_poplar_leaves",
-    OrangePoplarLeaves = "orange_poplar_leaves",
-    YellowPoplarLeaves = "yellow_poplar_leaves",
-    PauseMobGrowth = "pause_mob_growth",
-    ResetMobGrowth = "reset_mob_growth",
-    BlockMarker = "block_marker",
-}
-impl ParticleType {
-    /// `ParticleType.getOverrideLimiter` (`ParticleTypes.register(name, true)`):
-    /// spawned regardless of distance.
-    pub fn override_limiter(self) -> bool {
-        matches!(
-            self,
-            Self::BlockMarker
-                | Self::DamageIndicator
-                | Self::ExplosionEmitter
-                | Self::Explosion
-                | Self::Gust
-                | Self::GustEmitterLarge
-                | Self::GustEmitterSmall
-                | Self::SonicBoom
-                | Self::SculkCharge
-                | Self::SculkChargePop
-                | Self::Vibration
-                | Self::Poof
-                | Self::Spit
-                | Self::SquidInk
-                | Self::SweepAttack
-                | Self::CampfireCosySmoke
-                | Self::CampfireSignalSmoke
-                | Self::GlowSquidInk
-                | Self::Glow
-                | Self::WaxOn
-                | Self::WaxOff
-                | Self::ElectricSpark
-                | Self::Scrape
-                | Self::TrialSpawnerDetection
-                | Self::TrialSpawnerDetectionOminous
-                | Self::VaultConnection
-                | Self::OminousSpawning
-        )
-    }
-}
+pub use horizon_client_core::particle_type::ParticleType;
 
 /// `ParticleOptions` with the parameters of the option classes used here.
 #[derive(Clone, Debug)]
@@ -1147,7 +974,9 @@ pub struct ParticleEngine {
     pub requested: Option<Vec<(ParticleOptions, [f64; 3], [f64; 3])>>,
     names: Vec<String>,
     rects: Vec<Option<Rect>>,
-    atlas: HashMap<String, Rect>,
+    /// Each named sprite, and whether `SingleQuadParticle.Layer.bySprite` puts
+    /// it on the translucent layer (a texel with 0 < alpha < 255).
+    atlas: HashMap<String, (Rect, bool)>,
     sets: HashMap<ParticleType, u32>,
     set_sprites: Vec<Vec<u32>>,
     /// `TrackingEmitter`s: particle type, entity feet position, width, height, ticks left.
@@ -1167,7 +996,7 @@ pub struct ParticleEngine {
 /// `ParticleGroup.MAX_PARTICLES` (per render group; one group here).
 const MAX_PARTICLES: usize = 16384;
 impl ParticleEngine {
-    pub fn new(root: &Path, atlas: &HashMap<String, Rect>) -> Self {
+    pub fn new(root: &Path, atlas: &HashMap<String, Rect>, translucent: &HashSet<String>) -> Self {
         let mut engine = Self {
             particles: Vec::new(),
             pending: Vec::new(),
@@ -1178,7 +1007,7 @@ impl ParticleEngine {
             requested: None,
             names: Vec::new(),
             rects: Vec::new(),
-            atlas: atlas.clone(),
+            atlas: HashMap::new(),
             sets: HashMap::new(),
             set_sprites: Vec::new(),
             emitters: Vec::new(),
@@ -1188,6 +1017,34 @@ impl ParticleEngine {
             made: Default::default(),
             item_sprites: HashMap::new(),
         };
+        engine.reload(root, atlas, translucent);
+        engine
+    }
+    /// `onResourceManagerReload`: sprite rects and sets come from the
+    /// reloaded atlas and pack; a live particle keeps drawing its sprite by
+    /// name or index.
+    pub fn reload(
+        &mut self,
+        root: &Path,
+        atlas: &HashMap<String, Rect>,
+        translucent: &HashSet<String>,
+    ) {
+        self.atlas = atlas
+            .iter()
+            .map(|(name, &rect)| (name.clone(), (rect, translucent.contains(name))))
+            .collect();
+        self.rects = self
+            .names
+            .iter()
+            .map(|name| self.atlas.get(name).map(|&(rect, _)| rect))
+            .collect();
+        self.sets.clear();
+        self.set_sprites.clear();
+        self.item_sprites.clear();
+        self.load_sprites(root);
+    }
+    /// The sprite sets of every `particles/*.json` under `root`.
+    fn load_sprites(&mut self, root: &Path) {
         let dir = root.join("assets/minecraft/particles");
         for &ty in ParticleType::ALL {
             let Ok(bytes) = std::fs::read(dir.join(format!("{}.json", ty.name()))) else {
@@ -1202,25 +1059,23 @@ impl ParticleEngine {
                     a.iter()
                         .filter_map(|t| t.as_str())
                         .map(|t| {
-                            engine
-                                .intern(&format!("particle/{}", t.trim_start_matches("minecraft:")))
+                            self.intern(&format!("particle/{}", t.trim_start_matches("minecraft:")))
                         })
                         .collect()
                 })
                 .unwrap_or_default();
             if !sprites.is_empty() {
-                engine.sets.insert(ty, engine.set_sprites.len() as u32);
-                engine.set_sprites.push(sprites);
+                self.sets.insert(ty, self.set_sprites.len() as u32);
+                self.set_sprites.push(sprites);
             }
         }
-        engine
     }
     fn intern(&mut self, name: &str) -> u32 {
         if let Some(i) = self.names.iter().position(|n| n == name) {
             return i as u32;
         }
         self.names.push(name.to_owned());
-        self.rects.push(self.atlas.get(name).copied());
+        self.rects.push(self.atlas.get(name).map(|&(rect, _)| rect));
         (self.names.len() - 1) as u32
     }
     pub fn len(&self) -> usize {
@@ -1321,22 +1176,35 @@ impl ParticleEngine {
         }
     }
     /// `ClientPacketListener.handleExplosion` + `ClientExplosionTracker`: the
-    /// explosion particle (emitter for radius >= 2) and up to 512 poof/smoke
-    /// particles thrown from air inside the radius.
+    /// explosion particle (the emitter unless `ServerExplosion.isSmall`) and up
+    /// to 512 poof/smoke particles thrown from air inside the radius.
     pub fn explosion(
         &mut self,
         center: [f64; 3],
-        radius: f32,
+        small: bool,
         block_count: usize,
+        radius: f32,
         is_air: &dyn Fn([i32; 3]) -> bool,
     ) {
-        let ty = if radius < 2.0 {
+        let ty = if small {
             ParticleType::Explosion
         } else {
             ParticleType::ExplosionEmitter
         };
         self.add(&ParticleOptions::simple(ty), center, [1.0, 0.0, 0.0]);
         self.explosion_blocks(center, radius, block_count, is_air);
+    }
+    /// `LlamaSpit.recreateFromPacket`: seven spit particles thrown ahead of a
+    /// new spit, each faster than the last along x and z.
+    pub fn llama_spit_burst(&mut self, at: [f64; 3], movement: [f64; 3]) {
+        for i in 0..7 {
+            let k = 0.4 + 0.1 * f64::from(i);
+            self.add(
+                &ParticleOptions::simple(ParticleType::Spit),
+                at,
+                [movement[0] * k, movement[1], movement[2] * k],
+            );
+        }
     }
     /// `ClientExplosionTracker` with `Level.DEFAULT_EXPLOSION_BLOCK_PARTICLES`.
     pub fn explosion_blocks(
@@ -1564,7 +1432,10 @@ impl ParticleEngine {
             return;
         }
         if let Some(set) = p.set {
-            let sprites = &self.set_sprites[set as usize];
+            // A sprite set's index can outlive the reload that rebuilt them.
+            let Some(sprites) = self.set_sprites.get(set as usize) else {
+                return;
+            };
             let lifetime = p.lifetime.max(1);
             let index = (p.age.max(0) as i64 * (sprites.len() as i64 - 1) / i64::from(lifetime))
                 .clamp(0, sprites.len() as i64 - 1);
@@ -3760,9 +3631,18 @@ impl ParticleEngine {
             {
                 continue;
             }
-            let rect = match &p.sprite {
-                Sprite::Index(i) => self.rects.get(*i as usize).copied().flatten(),
-                Sprite::Named(name) => self.atlas.get(name).copied(),
+            // `SubmitNodeCollection.submitQuadParticleGroup`: the translucent
+            // layer draws after translucent terrain, so a crumb of stained
+            // glass cannot hide the glass behind it (`getLayer`).
+            let (rect, layer) = match &p.sprite {
+                Sprite::Index(i) => (
+                    self.rects.get(*i as usize).copied().flatten(),
+                    p.ty.translucent_layer(),
+                ),
+                Sprite::Named(name) => match self.atlas.get(name) {
+                    Some(&(rect, translucent)) => (Some(rect), translucent),
+                    None => (None, false),
+                },
             };
             let Some(r) = rect else { continue };
             let a = f64::from(partial);
@@ -3867,7 +3747,11 @@ impl ParticleEngine {
                         normal: [0; 4],
                         pos: v.to_array(),
                         uv,
-                        layer: 0,
+                        layer: if layer {
+                            crate::gfx::TRANSLUCENT_PARTICLE_OVERLAY
+                        } else {
+                            0
+                        },
                         color,
                         light,
                     });
@@ -3891,7 +3775,7 @@ mod tests {
 
     #[test]
     fn egg_teleport_unpacks_offsets_and_preserves_seeded_draw_order() {
-        let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new());
+        let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new(), &HashSet::new());
         engine.seed_randoms(0, 0, 0);
         // Destination offset (-15, 7, 15); the unused top byte is ignored.
         engine.block_teleportation([4, 12, -5], 0xff01_0f1fu32 as i32, [16, 8, 16], 0);
@@ -3916,7 +3800,7 @@ mod tests {
 
     #[test]
     fn consume_teleport_unpacks_offsets_within_127() {
-        let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new());
+        let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new(), &HashSet::new());
         engine.seed_randoms(0, 0, 0);
         // TeleportRandomlyConsumeEffect: BlockUtil.clampedPackDifferenceInPosition
         // of the move (-7, -3, 9) with radii 127, from (4, 12, -5) to (-3, 9, 4).
@@ -3941,7 +3825,8 @@ mod tests {
             (2, 0, 99_413_408_083_437),
         ] {
             for distant in [false, true] {
-                let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new());
+                let mut engine =
+                    ParticleEngine::new(Path::new(""), &HashMap::new(), &HashSet::new());
                 engine.seed_randoms(0, 0, 0);
                 if distant {
                     engine.camera = [1000.0; 3];
