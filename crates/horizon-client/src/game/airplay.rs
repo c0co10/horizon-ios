@@ -58,7 +58,8 @@ impl Game<'_> {
     }
 
     pub(super) fn sync_airplay(&mut self) {
-        let drawing = !horizon_ios_launcher::covered();
+        // In splitscreen the phone is the second player's, so it shows no cover.
+        let drawing = !horizon_ios_launcher::covered() && !self.splitscreen.active;
         sync(
             self.renderer.as_mut(),
             self.window.as_ref(),

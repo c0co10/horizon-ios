@@ -69,17 +69,26 @@ fn pause_buttons(w: f32, h: f32, remote: bool) -> Vec<(f32, f32, f32, &'static s
 
 /// The icon row: report bugs, feedback, friends, player reporting.
 /// `FRIENDS_ICON` (vanilla's `CommonButtons.friends`) opens Horizon's
-/// Play with Friends; the others stay inactive.
+/// Play with Friends; the others stay inactive. On an AirPlay display a fifth,
+/// `SPLIT_ICON` (Horizon's own, no sprite), starts and ends splitscreen; the
+/// row moves half an icon left to stay centred.
 const FRIENDS_ICON: usize = 2;
-fn pause_icons(w: f32, h: f32) -> [(f32, f32, &'static str); 4] {
-    let x0 = ((w - 212.0) * 0.5).floor() + 60.0;
+const SPLIT_ICON: usize = 4;
+const SPLIT_LABEL: &str = "Splitscreen";
+const SPLIT_LEAVE_LABEL: &str = "End splitscreen";
+fn pause_icons(w: f32, h: f32, split: bool) -> Vec<(f32, f32, &'static str)> {
+    let x0 = ((w - 212.0) * 0.5).floor() + 60.0 - if split { 12.0 } else { 0.0 };
     let y = ((h - 166.0) * 0.25).floor() + 98.0;
-    [
+    let mut icons = vec![
         (x0, y, "gui/sprites/pause_menu/bug"),
         (x0 + 24.0, y, "gui/sprites/pause_menu/social_interactions"),
         (x0 + 48.0, y, "gui/sprites/friends/friends"),
         (x0 + 72.0, y, "gui/sprites/pause_menu/player_reporting"),
-    ]
+    ];
+    if split {
+        icons.push((x0 + 96.0, y, ""));
+    }
+    icons
 }
 fn death_buttons(w: f32, h: f32) -> [(f32, f32, &'static str, u8); 2] {
     [
@@ -97,8 +106,18 @@ impl Game<'_> {
     pub(super) fn external_server(&self) -> bool {
         self.remote.is_some() && self.integrated.is_none()
     }
+    /// The pause menu shows the splitscreen icon (game/splitscreen.rs).
+    fn pause_split(&self) -> bool {
+        self.splitscreen.active || self.splitscreen_available()
+    }
     pub(super) fn draw_pause_menu(&mut self, batch: &mut HudBatch) {
         let friends = self.friends_view().shown;
+        let split = self.pause_split();
+        let split_label = if self.splitscreen.active {
+            SPLIT_LEAVE_LABEL
+        } else {
+            SPLIT_LABEL
+        };
         let atlas = &self.gui.atlas;
         let (w, h) = (batch.width, batch.height);
         ui::menu_background(batch, atlas, 0.0, 0.0, w, h, true);
@@ -127,8 +146,8 @@ impl Game<'_> {
             );
         }
         let mut tooltip = None;
-        for (i, (x, y, sprite)) in pause_icons(w, h).into_iter().enumerate() {
-            let active = i == FRIENDS_ICON && friends;
+        for (i, (x, y, sprite)) in pause_icons(w, h, split).into_iter().enumerate() {
+            let active = (i == FRIENDS_ICON && friends) || i == SPLIT_ICON;
             let hover = ui::hovered(self.cursor, x, y, 20.0, 20.0);
             // The icon has no label: name it for controller focus and the
             // control socket's widget tree.
@@ -138,6 +157,9 @@ impl Game<'_> {
                     [x, y, 20.0, 20.0],
                     active,
                 );
+            }
+            if i == SPLIT_ICON {
+                horizon_client::widgets::record(split_label, [x, y, 20.0, 20.0], true);
             }
             ui::button(
                 batch,
@@ -153,9 +175,23 @@ impl Game<'_> {
             // SpriteIconButton.CenteredIcon: the 15x15 sprite at
             // x + width / 2 - 15 / 2 in integer pixels, untinted even
             // when the button is inactive.
-            batch.sprite_scaled(atlas, sprite, x + 3.0, y + 3.0, 15.0, 15.0, u32::MAX);
+            if i == SPLIT_ICON {
+                // Two screens side by side; the second lit while it plays.
+                let second = if self.splitscreen.active {
+                    0xff55_ff55
+                } else {
+                    u32::MAX
+                };
+                batch.fill(atlas, x + 4.0, y + 6.0, 5.0, 8.0, u32::MAX);
+                batch.fill(atlas, x + 11.0, y + 6.0, 5.0, 8.0, second);
+            } else {
+                batch.sprite_scaled(atlas, sprite, x + 3.0, y + 3.0, 15.0, 15.0, u32::MAX);
+            }
             if i == FRIENDS_ICON && hover {
                 tooltip = Some(Text::literal(horizon_client::friends_screen::TITLE));
+            }
+            if i == SPLIT_ICON && hover {
+                tooltip = Some(Text::literal(split_label));
             }
         }
         // SpriteIconButton.withTootip: the label as a tooltip.
@@ -172,7 +208,9 @@ impl Game<'_> {
             let b = HudBatch::new(size);
             (b.width, b.height)
         };
-        let friends = pause_icons(w, h)[FRIENDS_ICON];
+        let icons = pause_icons(w, h, self.pause_split());
+        let friends = icons[FRIENDS_ICON];
+        let split = icons.get(SPLIT_ICON).copied();
         let hit = pause_buttons(w, h, self.external_server())
             .into_iter()
             .find(|b| b.5 && ui::hovered(self.cursor, b.0, b.1, b.2, 20.0))
@@ -181,6 +219,11 @@ impl Game<'_> {
                 (self.friends_view().shown
                     && ui::hovered(self.cursor, friends.0, friends.1, 20.0, 20.0))
                 .then_some(10)
+            })
+            .or_else(|| {
+                split
+                    .is_some_and(|(x, y, _)| ui::hovered(self.cursor, x, y, 20.0, 20.0))
+                    .then_some(11)
             });
         match hit {
             Some(0) => {
@@ -192,6 +235,12 @@ impl Game<'_> {
             Some(4) => self.open_advancements(true),
             Some(9) => self.open_world_options(),
             Some(10) => self.screen = Screen::Friends,
+            // game/splitscreen.rs starts or ends it after this frame; the menu closes for the TV.
+            Some(11) => {
+                self.splitscreen.request = Some(!self.splitscreen.active);
+                self.screen = Screen::Playing;
+                self.capture(true);
+            }
             Some(2) => self.close_world()?,
             _ => {}
         }

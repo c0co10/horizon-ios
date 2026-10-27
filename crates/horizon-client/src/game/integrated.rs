@@ -52,6 +52,8 @@ struct Flags {
     /// server follows while it runs (IntegratedServer.tickServer).
     render_distance: AtomicI32,
     simulation_distance: AtomicI32,
+    /// The second player of splitscreen (game/splitscreen.rs), let in like the owner.
+    splitscreen: Mutex<Option<u128>>,
 }
 
 /// Work the window hands its server thread (`MinecraftServer.execute`).
@@ -79,6 +81,21 @@ impl Integrated {
         self.flags
             .simulation_distance
             .store(simulation, Ordering::Relaxed);
+    }
+    /// A second connection through memory, for splitscreen's second player `uuid`, who the server lets in
+    /// while it is not open to the LAN.
+    pub fn join_splitscreen(&self, uuid: u128) -> Result<Pipe> {
+        *self.flags.splitscreen.lock().unwrap() = Some(uuid);
+        self.call(|game| match game.lan.as_mut() {
+            Some(host) => host.hub.lan.connect_local().map_err(|e| e.to_string()),
+            None => Err("the integrated server has no players".to_owned()),
+        })
+        .ok_or("the integrated server did not answer")?
+        .map_err(Into::into)
+    }
+    /// Splitscreen ended: the server lets only the owner in again.
+    pub fn leave_splitscreen(&self) {
+        *self.flags.splitscreen.lock().unwrap() = None;
     }
     /// `IntegratedServer.getPort` while `isPublished`.
     pub fn published(&self) -> Option<u16> {
@@ -317,7 +334,8 @@ impl Game<'_> {
             // is not compressed (`Connection.isMemoryConnection`).
             listen: false,
             gate: Some(Arc::new(move |_, uuid, _| {
-                (uuid != owner && published.published.load(Ordering::Relaxed) == 0)
+                let second = *published.splitscreen.lock().unwrap() == Some(uuid);
+                (uuid != owner && !second && published.published.load(Ordering::Relaxed) == 0)
                     .then(|| translatable("multiplayer.disconnect.not_whitelisted", &[]))
             })),
             // IntegratedServer.initServer: the MOTD names the owner and the world.

@@ -308,8 +308,8 @@ impl Game<'_> {
                 horizon_client::net::shown_address(address),
             );
         }
-        // A signed-in account always plays under its own name.
-        let auth = horizon_client::auth::current();
+        // A signed-in account always plays under its own name; splitscreen's second player under theirs.
+        let auth = horizon_client::auth::current().filter(|_| !self.splitscreen.guest);
         let name = auth.as_ref().map_or(name, |a| a.name.as_str());
         let user = auth.as_ref().map_or_else(
             || {
