@@ -710,6 +710,7 @@ mod tests {
         Loading {
             window: None,
             renderer: None,
+            airplay: None,
             gui: None,
             settings: Settings::default(),
             fullscreen: horizon_client::window::FullscreenState::new(false),
