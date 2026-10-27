@@ -116,9 +116,11 @@ impl Game<'_> {
     }
 
     fn touch_shown(&self) -> bool {
-        self.touch.seen
-            || cfg!(target_os = "ios")
-            || std::env::var_os("HORIZON_TOUCH").is_some_and(|v| v == "1")
+        // On AirPlay the phone is covered and the game is played with a controller (game/airplay.rs).
+        !self.on_airplay()
+            && (self.touch.seen
+                || cfg!(target_os = "ios")
+                || std::env::var_os("HORIZON_TOUCH").is_some_and(|v| v == "1"))
     }
 
     /// winit's `WindowEvent::Touch`.

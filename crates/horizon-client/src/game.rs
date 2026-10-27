@@ -4,6 +4,7 @@ mod advancements;
 mod advancements_screen;
 mod agent;
 mod agent_settings;
+mod airplay;
 mod allays;
 mod armor_stands;
 mod banners;
@@ -1276,6 +1277,8 @@ struct Game<'a> {
     pad: pad::Pads,
     /// Touch controls and the finger that is the pointer over menus (game/touch.rs).
     touch: touch::TouchInput,
+    /// The AirPlay display the renderer draws on, if any (game/airplay.rs).
+    airplay: airplay::Shown,
     /// The Mojang Studios screen fading out after loading, and when loading finished.
     loading_overlay: Option<(horizon_client::loading_overlay::Overlay, Instant)>,
     frames: u64,
@@ -11022,7 +11025,10 @@ impl ApplicationHandler for Game<'_> {
                     }
                 }
                 WindowEvent::Resized(size) => {
-                    if let Some(r) = &mut self.renderer {
+                    // On AirPlay the surface is the display's, sized by it.
+                    if let Some(r) = &mut self.renderer
+                        && !r.targeted()
+                    {
                         r.resize(size.width, size.height);
                     }
                 }
@@ -11066,7 +11072,10 @@ impl ApplicationHandler for Game<'_> {
                 }
                 WindowEvent::Touch(touch) => self.touch_event(event_loop, touch)?,
                 WindowEvent::Resized(size) => {
-                    if let Some(r) = &mut self.renderer {
+                    // On AirPlay the surface is the display's, sized by it.
+                    if let Some(r) = &mut self.renderer
+                        && !r.targeted()
+                    {
                         r.resize(size.width, size.height);
                     }
                     self.observe_fullscreen();
@@ -11808,6 +11817,7 @@ impl ApplicationHandler for Game<'_> {
         self.tick_server_packs();
         self.poll_control(event_loop);
         self.poll_launcher(event_loop);
+        self.sync_airplay();
         if self.pending_save.is_some() {
             return;
         }
@@ -12005,6 +12015,7 @@ impl<'a> Game<'a> {
             last_input: now,
             pad: Default::default(),
             touch: Default::default(),
+            airplay: None,
             loading_overlay: None,
             frames: 0,
             world_frames: 0,
@@ -13127,6 +13138,8 @@ fn run_event_loop(mut game: Game<'_>) -> Result<()> {
 struct Loading {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    /// The AirPlay display the renderer draws on, if any (game/airplay.rs).
+    airplay: airplay::Shown,
     gui: Option<UiResources>,
     settings: Settings,
     fullscreen: horizon_client::window::FullscreenState,
@@ -13274,6 +13287,12 @@ impl Loading {
             event_loop.exit();
             return;
         }
+        airplay::sync(
+            self.renderer.as_mut(),
+            self.window.as_ref(),
+            &mut self.airplay,
+            !horizon_ios_launcher::covered(),
+        );
         if horizon_ios_launcher::covered() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(33),
@@ -13508,6 +13527,7 @@ fn run_loading(
     let loading = Loading {
         window: None,
         renderer: None,
+        airplay: None,
         gui: None,
         settings,
         fullscreen: horizon_client::window::FullscreenState::new(false),

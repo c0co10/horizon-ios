@@ -463,7 +463,10 @@ impl Loading {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let Some(r) = &mut self.renderer {
+                // On AirPlay the surface is the display's, sized by it.
+                if let Some(r) = &mut self.renderer
+                    && !r.targeted()
+                {
                     r.resize(size.width, size.height);
                 }
                 self.apply_menu_settings();

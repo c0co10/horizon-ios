@@ -58,6 +58,8 @@ horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 horizon-gamecontroller = { path = "../horizon-gamecontroller" }
 # The SwiftUI launcher over the game on iPhone and iPad; an empty crate on every other target.
 horizon-ios-launcher = { path = "../horizon-ios-launcher" }
+# The game on an AirPlay display, the phone saying so; an empty crate on every other target.
+horizon-airplay = { path = "../horizon-airplay" }
 # HTTPS to the Minecraft services (online-mode session join).
 ureq = { version = "2", default-features = false, features = ["tls"] }
 

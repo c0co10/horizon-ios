@@ -327,6 +327,8 @@ pub struct Renderer {
     /// CPU time of the last `render`, waits excluded.
     pub last_encode: std::time::Duration,
     window: Arc<Window>,
+    /// Where the surface is made instead of `window`: an AirPlay display (`set_target`).
+    target: Option<Arc<dyn wgpu::DisplayAndWindowHandle>>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
@@ -2301,6 +2303,7 @@ impl Renderer {
             last_wait: std::time::Duration::ZERO,
             last_encode: std::time::Duration::ZERO,
             window,
+            target: None,
             device,
             queue,
             config,
@@ -2464,6 +2467,22 @@ impl Renderer {
     pub fn release_surface(&mut self) {
         self.surface = None;
     }
+    /// Draw on `target` (`width` by `height` pixels) instead of the window, or on the window again with
+    /// `None`: the game on an AirPlay display. The window's own resizes are the caller's to ignore meanwhile.
+    pub fn set_target(
+        &mut self,
+        target: Option<Arc<dyn wgpu::DisplayAndWindowHandle>>,
+        (width, height): (u32, u32),
+    ) -> Result<()> {
+        self.target = target;
+        self.recreate_surface()?;
+        self.resize(width, height);
+        Ok(())
+    }
+    /// It draws on a `set_target` display rather than the window.
+    pub fn targeted(&self) -> bool {
+        self.target.is_some()
+    }
     /// Reattach a window after surface loss or a failed renderer replacement.
     pub fn recreate_surface(&mut self) -> Result<()> {
         if self.offscreen.is_some() {
@@ -2471,7 +2490,10 @@ impl Renderer {
         }
         // Wayland allows only one tearing-control object per window surface.
         self.release_surface();
-        let surface = self.instance.create_surface(self.window.clone())?;
+        let surface = match &self.target {
+            Some(target) => self.instance.create_surface(target.clone())?,
+            None => self.instance.create_surface(self.window.clone())?,
+        };
         surface.configure(&self.device, &self.config);
         self.surface = Some(surface);
         Ok(())

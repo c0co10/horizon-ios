@@ -82,6 +82,17 @@
 					<string>WinitSceneDelegate</string>
 				</dict>
 			</array>
+			<key>UIWindowSceneSessionRoleExternalDisplayNonInteractive</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>AirPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>HorizonAirPlayDelegate</string>
+				</dict>
+			</array>
 		</dict>
 	</dict>
 	<key>UILaunchScreen</key>
