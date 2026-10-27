@@ -46,7 +46,7 @@ fn favour() -> bool {
 static HELPERS_BEHIND: AtomicBool = AtomicBool::new(false);
 
 /// How many nice levels a helper thread goes below the process on Linux.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const BEHIND: i32 = 10;
 
 /// From now on, the helper threads that call `behind_server` as they start
@@ -58,7 +58,7 @@ pub fn put_helpers_behind() {
 
 /// Called by a helper thread as it starts (world generation, lighting and
 /// meshing, a connection's packet writer): work no tick or frame waits for.
-/// Once `put_helpers_behind` was called, on Linux, where the server and
+/// Once `put_helpers_behind` was called, on Linux and Android, where the server and
 /// render threads can't be raised (`favour_current`), the helper lowers
 /// itself instead, which an unprivileged thread may: 10 nice levels below
 /// the process, or, where nice runs out (a game started under nice 10 or
@@ -69,7 +69,7 @@ pub fn behind_server() -> bool {
     HELPERS_BEHIND.load(Ordering::Relaxed) && behind()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn behind() -> bool {
     // SAFETY: these read and set the calling thread's own nice value or
     // policy (who 0, pid 0 is the calling thread on Linux); `param` lives
@@ -85,7 +85,7 @@ fn behind() -> bool {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn behind() -> bool {
     false
 }
@@ -122,7 +122,7 @@ mod tests {
     fn helpers_go_behind_only_when_asked() {
         assert!(!std::thread::spawn(super::behind_server).join().unwrap());
         super::put_helpers_behind();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         std::thread::spawn(|| {
             // SAFETY: reads the calling thread's own nice value.
             let before = unsafe { libc::getpriority(libc::PRIO_PROCESS as _, 0) };
@@ -142,7 +142,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
         assert!(!std::thread::spawn(super::behind_server).join().unwrap());
     }
 }
