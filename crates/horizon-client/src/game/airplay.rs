@@ -1,24 +1,26 @@
 //! The game on an AirPlay display (iPhone and iPad; Horizon's own): while one is connected, the renderer draws
 //! on it at its own size, the touch controls are put away, and the phone says "Playing on AirPlay" over
-//! everything (crate `horizon-airplay`). It is played with a controller meanwhile. Both the game and the
-//! loading screen before it call [`sync`] every frame; everywhere but iOS it finds no display and does nothing.
+//! everything (crate `horizon-airplay`). It is played with a controller meanwhile. In splitscreen the display's
+//! top half is this game's and its bottom half the second player's (game/splitscreen.rs). Both the game and
+//! the loading screen before it call [`sync`] every frame; everywhere but iOS it finds no display and does
+//! nothing.
 use super::Game;
+use horizon_airplay::Screen;
 use horizon_client::gfx::Renderer;
 use std::sync::Arc;
 use winit::window::Window;
 
-/// The display the renderer draws on: its connection and size, or `None` for the phone's own window.
+/// The view the renderer draws on: its id and size, or `None` for the phone's own window.
 pub(super) type Shown = Option<(u64, (u32, u32))>;
 
-/// Move the renderer to the AirPlay display, or back to `window`, when that changed since `shown`.
-/// `drawing` is false while the launcher covers the game, which the phone must keep showing.
+/// Move the renderer to `screen`, a view of the AirPlay display, or back to `window` without one, when that
+/// changed since `shown`.
 pub(super) fn sync(
     renderer: Option<&mut Renderer>,
     window: Option<&Arc<Window>>,
     shown: &mut Shown,
-    drawing: bool,
+    screen: Option<Screen>,
 ) {
-    let screen = horizon_airplay::screen(drawing);
     let Some(renderer) = renderer else {
         return;
     };
@@ -57,14 +59,15 @@ impl Game<'_> {
         self.renderer.as_ref().is_some_and(|r| r.targeted())
     }
 
+    /// `drawing` is false while the launcher covers the game, which the phone must keep showing.
     pub(super) fn sync_airplay(&mut self) {
-        // In splitscreen the phone is the second player's, so it shows no cover.
-        let drawing = !horizon_ios_launcher::covered() && !self.splitscreen.active;
+        let drawing = !horizon_ios_launcher::covered();
+        let screen = horizon_airplay::screen(drawing, self.splitscreen.active);
         sync(
             self.renderer.as_mut(),
             self.window.as_ref(),
             &mut self.airplay,
-            drawing,
+            screen,
         );
     }
 }

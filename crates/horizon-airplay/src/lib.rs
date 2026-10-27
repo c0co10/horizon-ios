@@ -3,19 +3,26 @@
 //! of its own instead of a mirror of the phone: iOS connects a scene to [`register`]'s delegate, which puts a
 //! window in it, and [`screen`] hands that window's view to the game for wgpu to draw on. The phone, meanwhile,
 //! is covered by a view that says "Playing on AirPlay" and takes its touches: on AirPlay the game is played
-//! with a controller. The game forbids `unsafe`, so the Objective-C lives here. Elsewhere [`screen`] is always
-//! `None`.
+//! with a controller.
+//!
+//! Splitscreen splits the display top and bottom: [`screen`] then hands the top half to the first player and
+//! [`second_screen`] the bottom half to the second, whose controller is the phone. The cover then draws the
+//! second player's touch controls ([`phone_controls`]) and lets the touches through to the game under it.
+//!
+//! The game forbids `unsafe`, so the Objective-C lives here. Elsewhere [`screen`] is always `None`.
 
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
 
-/// The AirPlay display, while one is connected: what the game draws to instead of the phone's window.
+/// A view on the AirPlay display, while one is connected: what a player's renderer draws to instead of the
+/// phone's window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screen {
-    /// Counts connections, so a display that went and came back is a new surface.
+    /// Unique to the view, so a display that went and came back, or a half that was made again, is a new
+    /// surface.
     pub id: u64,
-    /// The display's size in pixels.
+    /// The view's size in pixels.
     pub size: (u32, u32),
     #[cfg(target_os = "ios")]
     view: std::ptr::NonNull<std::ffi::c_void>,
@@ -52,32 +59,59 @@ impl HasDisplayHandle for Screen {
     }
 }
 
+/// A touch control drawn on the phone for splitscreen's second player.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Button {
+    pub label: String,
+    /// `[x, y, width, height]` in the phone window's pixels.
+    pub rect: [f32; 4],
+    /// A finger holds it.
+    pub held: bool,
+}
+
 /// Make the scene delegate's class known before iOS asks for it by name: call it before the event loop.
 pub fn register() {
     #[cfg(target_os = "ios")]
     ios::register();
 }
 
-/// The AirPlay display, if one is connected. Called every frame: `cover_phone` says whether the phone shows
-/// "Playing on AirPlay" over everything (while the game draws on the display) or what is under it (the
-/// launcher, which needs its touches).
-pub fn screen(cover_phone: bool) -> Option<Screen> {
+/// The first player's view of the AirPlay display, if one is connected: all of it, or its top half while
+/// `split`. Called every frame: `cover_phone` says whether the phone shows the cover over everything (while
+/// the game draws on the display) or what is under it (the launcher, which needs its touches).
+pub fn screen(cover_phone: bool, split: bool) -> Option<Screen> {
     #[cfg(target_os = "ios")]
-    return ios::screen(cover_phone);
+    return ios::screen(cover_phone, split);
     #[cfg(not(target_os = "ios"))]
     {
-        let _ = cover_phone;
+        let _ = (cover_phone, split);
         None
     }
 }
 
+/// The second player's view: the bottom half, while [`screen`] splits the display.
+pub fn second_screen() -> Option<Screen> {
+    #[cfg(target_os = "ios")]
+    return ios::second_screen();
+    #[cfg(not(target_os = "ios"))]
+    None
+}
+
+/// The second player's touch controls on the phone, which then lets its touches through to the game; `None`
+/// takes them away and the cover takes the touches again.
+pub fn phone_controls(buttons: Option<&[Button]>) {
+    #[cfg(target_os = "ios")]
+    ios::phone_controls(buttons);
+    #[cfg(not(target_os = "ios"))]
+    let _ = buttons;
+}
+
 #[cfg(target_os = "ios")]
 mod ios {
-    use super::Screen;
+    use super::{Button, Screen};
     use objc2::rc::Retained;
     use objc2::{MainThreadMarker, MainThreadOnly, Message, define_class};
-    use objc2_core_foundation::CGRect;
-    use objc2_foundation::{NSObject, NSObjectProtocol, ns_string};
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
     use objc2_ui_kit::{
         NSTextAlignment, UIApplication, UIColor, UIFont, UILabel, UIScene,
         UISceneConnectionOptions, UISceneDelegate, UISceneSession, UIView, UIViewAutoresizing,
@@ -87,18 +121,40 @@ mod ios {
     use std::cell::{Cell, RefCell};
     use std::ptr::NonNull;
 
-    struct State {
+    /// A view with the id its surfaces know it by.
+    struct View {
         id: u64,
+        view: Retained<UIView>,
+    }
+
+    struct Cover {
+        view: Retained<UIView>,
+        label: Retained<UILabel>,
+        /// The second player's controls, over the cover's black.
+        pad: Retained<UIView>,
+        drawn: Vec<Button>,
+    }
+
+    struct State {
         scene: Retained<UIWindowScene>,
         /// Kept: a window nothing retains leaves the display.
         _window: Retained<UIWindow>,
-        view: Retained<UIView>,
-        cover: Option<Retained<UIView>>,
+        view: View,
+        /// The top and bottom halves, while split.
+        halves: Option<(View, View)>,
+        cover: Option<Cover>,
     }
 
     thread_local! {
         static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
-        static CONNECTIONS: Cell<u64> = const { Cell::new(0) };
+        static IDS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    fn next_id() -> u64 {
+        IDS.with(|c| {
+            c.set(c.get() + 1);
+            c.get()
+        })
     }
 
     define_class!(
@@ -134,6 +190,10 @@ mod ios {
         let _ = <Delegate as objc2::ClassType>::class();
     }
 
+    fn flexible() -> UIViewAutoresizing {
+        UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight
+    }
+
     fn connect(scene: &UIScene) {
         let Some(scene) = scene.downcast_ref::<UIWindowScene>() else {
             return;
@@ -145,16 +205,15 @@ mod ios {
         view.setBackgroundColor(Some(&UIColor::blackColor()));
         window.setRootViewController(Some(&controller));
         window.setHidden(false);
-        let id = CONNECTIONS.with(|c| {
-            c.set(c.get() + 1);
-            c.get()
-        });
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
-                id,
                 scene: scene.retain(),
                 _window: window,
-                view,
+                view: View {
+                    id: next_id(),
+                    view,
+                },
+                halves: None,
                 cover: None,
             })
         });
@@ -168,7 +227,7 @@ mod ios {
             }) && let Some(st) = state.take()
                 && let Some(cover) = st.cover
             {
-                cover.removeFromSuperview();
+                cover.view.removeFromSuperview();
             }
         });
     }
@@ -187,53 +246,150 @@ mod ios {
         })
     }
 
-    /// A black view over the phone's window that says where the game is, and takes the touches the hidden
-    /// controls would have. Made when first shown: the phone's window may not exist yet when a display that
-    /// was already connected joins at launch.
-    fn cover_phone(mtm: MainThreadMarker) -> Option<Retained<UIView>> {
-        let window = phone_window(mtm)?;
-        let bounds: CGRect = window.bounds();
-        let flexible = UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight;
-        let cover = UIView::initWithFrame(UIView::alloc(mtm), bounds);
-        cover.setAutoresizingMask(flexible);
-        cover.setBackgroundColor(Some(&UIColor::blackColor()));
-        let label = UILabel::initWithFrame(UILabel::alloc(mtm), bounds);
-        label.setAutoresizingMask(flexible);
-        label.setText(Some(ns_string!("Playing on AirPlay")));
+    fn label(mtm: MainThreadMarker, frame: CGRect, text: &str, size: f64) -> Retained<UILabel> {
+        let label = UILabel::initWithFrame(UILabel::alloc(mtm), frame);
+        label.setText(Some(&NSString::from_str(text)));
         // SAFETY: a label made here, on the main thread.
         unsafe { label.setTextColor(Some(&UIColor::whiteColor())) };
         label.setTextAlignment(NSTextAlignment::Center);
-        unsafe { label.setFont(Some(&UIFont::boldSystemFontOfSize(22.0))) };
-        cover.addSubview(&label);
-        window.addSubview(&cover);
-        Some(cover)
+        unsafe { label.setFont(Some(&UIFont::boldSystemFontOfSize(size))) };
+        label
     }
 
-    pub(super) fn screen(cover: bool) -> Option<Screen> {
+    /// A black view over the phone's window that says where the game is, and takes the touches the hidden
+    /// controls would have. Made when first shown: the phone's window may not exist yet when a display that
+    /// was already connected joins at launch.
+    fn cover_phone(mtm: MainThreadMarker) -> Option<Cover> {
+        let window = phone_window(mtm)?;
+        let bounds: CGRect = window.bounds();
+        let view = UIView::initWithFrame(UIView::alloc(mtm), bounds);
+        view.setAutoresizingMask(flexible());
+        view.setBackgroundColor(Some(&UIColor::blackColor()));
+        let text = label(mtm, bounds, "Playing on AirPlay", 22.0);
+        text.setAutoresizingMask(flexible());
+        view.addSubview(&text);
+        let pad = UIView::initWithFrame(UIView::alloc(mtm), bounds);
+        pad.setAutoresizingMask(flexible());
+        view.addSubview(&pad);
+        window.addSubview(&view);
+        Some(Cover {
+            view,
+            label: text,
+            pad,
+            drawn: Vec::new(),
+        })
+    }
+
+    fn screen_of(state: &State, view: &View) -> Screen {
+        let bounds = view.view.bounds();
+        let scale = state.scene.screen().scale();
+        Screen {
+            id: view.id,
+            size: (
+                (bounds.size.width * scale).round().max(1.0) as u32,
+                (bounds.size.height * scale).round().max(1.0) as u32,
+            ),
+            view: NonNull::from(&*view.view).cast(),
+        }
+    }
+
+    /// The display's halves, made new each time it splits: added over the whole view's own layers, which may
+    /// still hold the last frame drawn on all of it.
+    fn halves(state: &State) -> (View, View) {
+        let mtm = MainThreadMarker::from(&*state.view.view);
+        let bounds = state.view.view.bounds();
+        let half = bounds.size.height / 2.0;
+        let make = |y: f64, mask: UIViewAutoresizing| {
+            let frame = CGRect::new(CGPoint::new(0.0, y), CGSize::new(bounds.size.width, half));
+            let view = UIView::initWithFrame(UIView::alloc(mtm), frame);
+            view.setAutoresizingMask(
+                mask | UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight,
+            );
+            view.setBackgroundColor(Some(&UIColor::blackColor()));
+            state.view.view.addSubview(&view);
+            View {
+                id: next_id(),
+                view,
+            }
+        };
+        (
+            make(0.0, UIViewAutoresizing::FlexibleBottomMargin),
+            make(half, UIViewAutoresizing::FlexibleTopMargin),
+        )
+    }
+
+    pub(super) fn screen(cover: bool, split: bool) -> Option<Screen> {
         STATE.with(|s| {
             let mut state = s.borrow_mut();
             let state = state.as_mut()?;
             if cover && state.cover.is_none() {
-                state.cover = cover_phone(MainThreadMarker::from(&*state.view));
+                state.cover = cover_phone(MainThreadMarker::from(&*state.view.view));
             }
-            if let Some(view) = &state.cover {
-                view.setHidden(!cover);
+            if let Some(c) = &state.cover {
+                c.view.setHidden(!cover);
                 // The launcher or the keyboard may have put a view over it since.
-                if cover && let Some(window) = view.superview() {
-                    window.bringSubviewToFront(view);
+                if cover && let Some(window) = c.view.superview() {
+                    window.bringSubviewToFront(&c.view);
                 }
             }
-            let bounds = state.view.bounds();
-            let scale = state.scene.screen().scale();
-            let size = (
-                (bounds.size.width * scale).round().max(1.0) as u32,
-                (bounds.size.height * scale).round().max(1.0) as u32,
-            );
-            Some(Screen {
-                id: state.id,
-                size,
-                view: NonNull::from(&*state.view).cast(),
-            })
+            if split && state.halves.is_none() {
+                state.halves = Some(halves(state));
+            } else if !split && let Some((top, bottom)) = state.halves.take() {
+                top.view.removeFromSuperview();
+                bottom.view.removeFromSuperview();
+            }
+            let view = state.halves.as_ref().map_or(&state.view, |(top, _)| top);
+            Some(screen_of(state, view))
         })
+    }
+
+    pub(super) fn second_screen() -> Option<Screen> {
+        STATE.with(|s| {
+            let state = s.borrow();
+            let state = state.as_ref()?;
+            let (_, bottom) = state.halves.as_ref()?;
+            Some(screen_of(state, bottom))
+        })
+    }
+
+    pub(super) fn phone_controls(buttons: Option<&[Button]>) {
+        STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            let Some(cover) = state.as_mut().and_then(|st| st.cover.as_mut()) else {
+                return;
+            };
+            // With controls, the touches go through to the game's view under the cover.
+            cover.view.setUserInteractionEnabled(buttons.is_none());
+            cover.label.setHidden(buttons.is_some());
+            let buttons = buttons.unwrap_or_default();
+            if cover.drawn == buttons {
+                return;
+            }
+            let mtm = MainThreadMarker::from(&*cover.pad);
+            for old in cover.pad.subviews().iter() {
+                old.removeFromSuperview();
+            }
+            let scale = cover.view.contentScaleFactor().max(1.0);
+            for b in buttons {
+                let frame = CGRect::new(
+                    CGPoint::new(f64::from(b.rect[0]) / scale, f64::from(b.rect[1]) / scale),
+                    CGSize::new(f64::from(b.rect[2]) / scale, f64::from(b.rect[3]) / scale),
+                );
+                let view = UIView::initWithFrame(UIView::alloc(mtm), frame);
+                let alpha = if b.held { 0.55 } else { 0.25 };
+                view.setBackgroundColor(Some(&UIColor::colorWithWhite_alpha(1.0, alpha)));
+                let size = (frame.size.height * 0.45).clamp(9.0, 24.0);
+                let text = label(
+                    mtm,
+                    CGRect::new(CGPoint::new(0.0, 0.0), frame.size),
+                    &b.label,
+                    size,
+                );
+                text.setAutoresizingMask(flexible());
+                view.addSubview(&text);
+                cover.pad.addSubview(&view);
+            }
+            cover.drawn = buttons.to_vec();
+        });
     }
 }

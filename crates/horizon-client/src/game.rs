@@ -13299,7 +13299,7 @@ impl Loading {
             self.renderer.as_mut(),
             self.window.as_ref(),
             &mut self.airplay,
-            !horizon_ios_launcher::covered(),
+            horizon_airplay::screen(!horizon_ios_launcher::covered(), false),
         );
         if horizon_ios_launcher::covered() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(

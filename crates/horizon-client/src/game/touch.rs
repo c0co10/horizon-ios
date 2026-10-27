@@ -72,10 +72,44 @@ fn key_of(control: Control) -> Option<KeyCode> {
 }
 
 impl Game<'_> {
+    /// Where touches land, in GUI pixels: the screen the game draws on, or the phone's window when the
+    /// phone is splitscreen's controller ([`Self::touch_on_phone`]).
     fn touch_batch(&self) -> Option<HudBatch> {
+        if self.touch_on_phone() {
+            return self.window.as_ref().map(|w| {
+                let size = w.inner_size();
+                HudBatch::new([size.width, size.height])
+            });
+        }
+        self.screen_batch()
+    }
+
+    /// The screen the game draws on, in GUI pixels.
+    fn screen_batch(&self) -> Option<HudBatch> {
         self.renderer
             .as_ref()
             .map(|r| HudBatch::new([r.config.width, r.config.height]))
+    }
+
+    /// Splitscreen's second player on the AirPlay display (game/splitscreen.rs): the phone is their
+    /// controller, with the buttons drawn on it and not on the display, laid out in its own pixels.
+    pub(super) fn touch_on_phone(&self) -> bool {
+        self.splitscreen.guest && self.on_airplay()
+    }
+
+    /// A point of the touch screen on the screen the game draws on: the same point, or, when the phone is the
+    /// controller, the point as far across and down the display's half as it was across and down the phone.
+    fn screen_point(&self, at: (f32, f32)) -> (f32, f32) {
+        if !self.touch_on_phone() {
+            return at;
+        }
+        match (self.touch_batch(), self.screen_batch()) {
+            (Some(phone), Some(screen)) => (
+                at.0 / phone.width.max(1.0) * screen.width,
+                at.1 / phone.height.max(1.0) * screen.height,
+            ),
+            _ => at,
+        }
     }
 
     fn touch_now(&mut self) -> f64 {
@@ -116,8 +150,9 @@ impl Game<'_> {
     }
 
     fn touch_shown(&self) -> bool {
-        // On AirPlay the phone is covered and the game is played with a controller (game/airplay.rs).
-        !self.on_airplay()
+        // On AirPlay the phone is covered and the game is played with a controller (game/airplay.rs), but for
+        // splitscreen's second player, whose controller the phone is.
+        (!self.on_airplay() || self.splitscreen.guest)
             && (self.touch.seen
                 || cfg!(target_os = "ios")
                 || std::env::var_os("HORIZON_TOUCH").is_some_and(|v| v == "1"))
@@ -328,7 +363,7 @@ impl Game<'_> {
                     // it would on any phone (and one on the field brings it back after the button hid it);
                     // the tap still does what it was on.
                     match self.focused_field_rect() {
-                        Some(rect) if touch::hit_rect(rect, at) => {
+                        Some(rect) if touch::hit_rect(rect, self.screen_point(at)) => {
                             if self.system_keyboard_hidden() {
                                 self.show_system_keyboard();
                             }
@@ -400,10 +435,11 @@ impl Game<'_> {
     }
 
     fn touch_pointer(&mut self, event_loop: &ActiveEventLoop, at: (f32, f32)) {
-        let (Some(id), Some(batch)) = (self.window.as_ref().map(|w| w.id()), self.touch_batch())
+        let (Some(id), Some(batch)) = (self.window.as_ref().map(|w| w.id()), self.screen_batch())
         else {
             return;
         };
+        let at = self.screen_point(at);
         let position =
             PhysicalPosition::new(f64::from(at.0 * batch.scale), f64::from(at.1 * batch.scale));
         self.window_event(
@@ -456,7 +492,11 @@ impl Game<'_> {
     /// The buttons over the HUD while playing: vanilla's button, a little see-through as Pocket Edition's
     /// were, lit while held, with white marks shadowed like Minecraft's text.
     pub(super) fn draw_touch_controls(&self, batch: &mut HudBatch) {
-        if !self.touch_shown() || self.hardware_hides_touch() || !self.touch_playing() {
+        if !self.touch_shown()
+            || self.hardware_hides_touch()
+            || !self.touch_playing()
+            || self.touch_on_phone()
+        {
             return;
         }
         let atlas = &self.gui.atlas;
@@ -474,7 +514,7 @@ impl Game<'_> {
     /// The buttons over a screen: ✕ where the screen has no way out of its own on a touch screen
     /// (`touch_close_shown`), and ⌨ beside it while a text field has focus.
     pub(super) fn draw_touch_close(&mut self, batch: &mut HudBatch) {
-        if self.hardware_hides_touch() {
+        if self.hardware_hides_touch() || self.touch_on_phone() {
             return;
         }
         let held = self.touch.menu.as_ref().is_some_and(|f| f.closed);
@@ -511,6 +551,57 @@ impl Game<'_> {
                 batch.fill(atlas, cx - 2.5 * u, cy + 1.7 * u, 5.0 * u, u, color);
             });
         }
+    }
+}
+
+impl Game<'_> {
+    /// What the phone shows when it is splitscreen's controller (`touch_on_phone`): the buttons that are
+    /// otherwise drawn over the game, in the phone window's pixels.
+    pub(super) fn phone_buttons(&mut self) -> Vec<horizon_airplay::Button> {
+        let Some(batch) = self.touch_batch().filter(|_| self.touch_shown()) else {
+            return Vec::new();
+        };
+        let focused = self.field_focused();
+        let px = |r: touch::Rect| r.map(|v| v * batch.scale);
+        let mut buttons = Vec::new();
+        if self.touch_playing() {
+            for (control, r) in touch::layout(batch.width, batch.height) {
+                let label = match control {
+                    Control::Forward => "▲".to_owned(),
+                    Control::Back => "▼".to_owned(),
+                    Control::Left => "◀".to_owned(),
+                    Control::Right => "▶".to_owned(),
+                    Control::Sneak => "Sneak".to_owned(),
+                    Control::Jump => "Jump".to_owned(),
+                    Control::Perspective => "View".to_owned(),
+                    Control::Chat => "Chat".to_owned(),
+                    Control::Pause => "II".to_owned(),
+                    Control::Inventory => "•••".to_owned(),
+                    Control::Hotbar(slot) => (slot + 1).to_string(),
+                };
+                buttons.push(horizon_airplay::Button {
+                    label,
+                    rect: px(r),
+                    held: self.touch.fingers.held(control),
+                });
+            }
+        } else {
+            if self.touch_close_shown() {
+                buttons.push(horizon_airplay::Button {
+                    label: "✕".to_owned(),
+                    rect: px(touch::close_rect(batch.width, batch.height)),
+                    held: self.touch.menu.as_ref().is_some_and(|f| f.closed),
+                });
+            }
+            if focused {
+                buttons.push(horizon_airplay::Button {
+                    label: "⌨".to_owned(),
+                    rect: px(touch::keyboard_rect(batch.width, batch.height)),
+                    held: false,
+                });
+            }
+        }
+        buttons
     }
 }
 

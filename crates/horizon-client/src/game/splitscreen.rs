@@ -1,9 +1,11 @@
-//! Splitscreen on an AirPlay display (iPhone and iPad; Horizon's own): the game on the TV is played with a
-//! controller, and a second player plays on the phone with the touch controls. The second player is a second
-//! client `Game` joined to the window's integrated server through memory, as a LAN guest joins it, with its
-//! own renderer on the phone's window, no sound (the first player's plays) and no controller. The pause menu
-//! starts and ends it (game/screens.rs); the second player leaving the world, the first leaving theirs, or
-//! the AirPlay display going away ends it too.
+//! Splitscreen on an AirPlay display (iPhone and iPad; Horizon's own): the display splits top and bottom, the
+//! first player on top with the controller, and a second player below whose controller is the phone: its
+//! touch controls are drawn on the phone alone (horizon-airplay), and its menus are tapped as far across the
+//! phone as they are across their half. The second player is a second client `Game` joined to the window's
+//! integrated server through memory, as a LAN guest joins it, with its own renderer on the display's bottom
+//! half, no sound (the first player's plays) and no controller. The pause menu starts and ends it
+//! (game/screens.rs); the second player leaving the world, the first leaving theirs, or the AirPlay display
+//! going away ends it too.
 use super::{Game, UiResources};
 use horizon_client::{Result, audio::Audio, hud::HudAtlas};
 use std::sync::Arc;
@@ -111,6 +113,7 @@ pub(super) fn update<'a>(host: &mut Game<'a>, guest: &mut Option<Box<Game<'a>>>)
         // Dropping the guest closes its connection, and the server sees the player leave.
         *guest = None;
         host.end_splitscreen();
+        horizon_airplay::phone_controls(None);
     }
     if request == Some(true) && guest.is_none() && host.splitscreen_available() {
         match host.splitscreen_guest() {
@@ -123,6 +126,13 @@ pub(super) fn update<'a>(host: &mut Game<'a>, guest: &mut Option<Box<Game<'a>>>)
                 host.end_splitscreen();
             }
         }
+    }
+    if let Some(g) = guest {
+        // The bottom half, once the first player's game has split the display (its frame after the start).
+        let half = horizon_airplay::second_screen();
+        super::airplay::sync(g.renderer.as_mut(), g.window.as_ref(), &mut g.airplay, half);
+        let buttons = g.phone_buttons();
+        horizon_airplay::phone_controls(Some(&buttons));
     }
 }
 
