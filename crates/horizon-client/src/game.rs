@@ -13295,7 +13295,16 @@ impl Loading {
                 horizon_client::hud::GUI_SCALE.store(self.settings.gui_scale, Ordering::Relaxed);
                 self.renderer = Some(r);
             }
-            Err(e) => self.error = Some(e),
+            // Keep drawing the loading screen on the old renderer rather than on no surface at all.
+            Err(e) => {
+                log::error!("Horizon: the title renderer failed: {e}");
+                if let Some(renderer) = &mut self.renderer
+                    && let Err(restore) = renderer.recreate_surface()
+                {
+                    log::error!("Horizon: and the loading screen's surface is gone too: {restore}");
+                }
+                self.error = Some(e);
+            }
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -13388,7 +13397,7 @@ impl Loading {
             renderer.release_surface();
         }
         let renderer_at = Instant::now();
-        let renderer = build_renderer(
+        let renderer = match build_renderer(
             window.clone(),
             options.offscreen,
             &loaded.pack,
@@ -13396,7 +13405,16 @@ impl Loading {
             self.renderer.as_ref(),
             loaded.renderer_cpu,
             self.settings.horizon.api,
-        )?;
+        ) {
+            Ok(renderer) => renderer,
+            // The screen that says why (a phone's import screen) draws on the loading renderer.
+            Err(e) => {
+                if let Some(renderer) = &mut self.renderer {
+                    let _ = renderer.recreate_surface();
+                }
+                return Err(e);
+            }
+        };
         log::info!(
             "Horizon: world renderer ready after {} ms",
             self.started.elapsed().as_millis()
