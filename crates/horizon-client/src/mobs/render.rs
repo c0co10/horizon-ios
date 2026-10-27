@@ -336,6 +336,17 @@ pub fn layers(m: &Mob) -> Vec<Layer> {
     use Species as S;
     let mut v = Vec::new();
     if &*m.kind.id == "minecraft:player" {
+        // CapeLayer: not over an elytra, which wears the cape's texture itself.
+        if let Some(cape) = &m.cape
+            && m.extra.chest.as_deref() != Some("minecraft:elytra")
+        {
+            v.push(Layer {
+                model: "player#cape".into(),
+                texture: cape.clone(),
+                color: 0xFFFF_FFFF,
+                full_bright: false,
+            });
+        }
         return v;
     }
     let white = 0xFFFF_FFFF;
@@ -1111,6 +1122,10 @@ fn render_visible(
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .apply(folder, variant, profession, &mut poses);
         }
+        if layer.model == "player#cape" {
+            // The part's own pose turns it to face backwards (yRot pi); the tilt goes after that.
+            poses.xrot("cape", -cape_tilt(m, alpha).to_radians());
+        }
         let light = if layer.full_bright {
             240 | 240 << 8
         } else {
@@ -1134,6 +1149,24 @@ fn render_visible(
     if shell_last {
         draw_body(out);
     }
+}
+/// `PlayerCapeModel.setupAnim`'s tilt in degrees: 6 at rest, `capeLean / 2` as the player moves forward,
+/// `capeFlap` as it falls, 25 more crouching. Vanilla's cloak trails the player by a quarter of the gap a
+/// tick, so it lags three ticks of motion; that lag stands in for `xCloak`, and the walk bob is left out.
+fn cape_tilt(m: &Mob, alpha: f32) -> f32 {
+    let (sin, cos) = (lerp(alpha, m.previous_body_yaw, m.body_yaw).to_radians()).sin_cos();
+    let (dx, dy, dz): (f64, f64, f64) = (
+        -3.0 * (m.position.x - m.previous.x),
+        -3.0 * (m.position.y - m.previous.y),
+        -3.0 * (m.position.z - m.previous.z),
+    );
+    let flap = (dy * 10.0).clamp(-6.0, 32.0) as f32;
+    let lean = ((dx * f64::from(sin) - dz * f64::from(cos)) * 100.0).clamp(0.0, 150.0) as f32;
+    let crouch = if m.extra.crouching { 25.0 } else { 0.0 };
+    6.0 + lean / 2.0 + flap + crouch
+}
+fn lerp(t: f32, a: f32, b: f32) -> f32 {
+    a + (b - a) * t
 }
 /// The equipment slot of a `HumanoidArmorLayer` model (`zombie#helmet`).
 fn armor_slot(model: &str) -> Option<usize> {

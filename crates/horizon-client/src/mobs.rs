@@ -862,6 +862,8 @@ pub struct Mob {
     pub skin: Option<String>,
     /// That skin is slim (`PlayerSkin.model`): the body is `player_slim`'s.
     pub slim: bool,
+    /// A player's cape texture (`PlayerSkin.capeTexture`, `capes/…`), once downloaded.
+    pub cape: Option<String>,
 }
 /// Events a mob tick asks the game to act on.
 #[derive(Clone, Debug)]
@@ -1587,6 +1589,7 @@ impl Mob {
             rider: None,
             outbox: Vec::new(),
             skin: None,
+            cape: None,
             slim: false,
             attrs: Attrs {
                 speed: kind.speed,

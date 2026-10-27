@@ -152,9 +152,18 @@ pub fn texture_hash(url: &str) -> Option<String> {
 /// `SkinManager.TextureCache.registerTexture`: the texture id of a skin,
 /// `skins/` and the SHA-1 of its hash's UTF-16 code units.
 pub fn skin_location(hash: &str) -> String {
+    location("skins/", hash)
+}
+
+/// The cape's texture id, as [`skin_location`] in `capes/`.
+pub fn cape_location(hash: &str) -> String {
+    location("capes/", hash)
+}
+
+fn location(folder: &str, hash: &str) -> String {
     let units: Vec<u8> = hash.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let digest = sha1(&units);
-    let mut out = String::from("skins/");
+    let mut out = String::from(folder);
     for b in digest {
         out.push_str(&format!("{b:02x}"));
     }
@@ -209,6 +218,26 @@ pub fn lookup(
         return None;
     }
     skin
+}
+
+/// The cape texture a player shows (`PlayerSkin.capeTexture`), once its download is ready.
+pub fn cape(
+    textures: &Textures,
+    mut download: impl FnMut(Kind, &str) -> Download,
+) -> Option<String> {
+    let url = textures.cape.as_deref()?;
+    let location = cape_location(&texture_hash(url)?);
+    (download(Kind::Cape, url) == Download::Ready).then_some(location)
+}
+
+/// A cape's 64x32 pixels in the 64x64 a skin slot holds, the lower half clear. `None` for any other size.
+fn cape_in_slot(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
+    if (width, height) != (64, 32) {
+        return None;
+    }
+    let mut img = rgba.to_vec();
+    img.resize(64 * 64 * 4, 0);
+    Some(img)
 }
 
 /// `SkinTextureDownloader.processLegacySkin` on RGBA pixels: 64x32 skins
@@ -299,8 +328,10 @@ impl Downloader {
         while let Ok((key, image)) = self.done.try_recv() {
             let state = match image {
                 Some(rgba) => {
-                    if key.0 == Kind::Skin {
-                        self.ready.push((skin_location(&key.1), rgba));
+                    match key.0 {
+                        Kind::Skin => self.ready.push((skin_location(&key.1), rgba)),
+                        Kind::Cape => self.ready.push((cape_location(&key.1), rgba)),
+                        Kind::Elytra => {}
                     }
                     Download::Ready
                 }
@@ -333,13 +364,14 @@ impl Downloader {
                 .and_then(|b| crate::hud::decode_bytes(&b).ok())
                 .and_then(|(w, h, rgba)| match kind {
                     Kind::Skin => process_legacy_skin(w, h, &rgba),
-                    _ => Some(rgba),
+                    Kind::Cape => cape_in_slot(w, h, &rgba),
+                    Kind::Elytra => Some(rgba),
                 });
             let _ = send.send((key, image));
         });
         Download::Pending
     }
-    /// Skins that finished since the last call: texture id and 64x64 RGBA.
+    /// Skins and capes that finished since the last call: texture id and 64x64 RGBA.
     pub fn take_ready(&mut self) -> Vec<(String, Vec<u8>)> {
         std::mem::take(&mut self.ready)
     }
@@ -407,6 +439,33 @@ pub fn ely_textures(body: &str) -> Textures {
     out
 }
 
+/// The Mojang account `name`'s textures: its profile id, then the session server's signed profile. Counted
+/// as signed for the same reason as Ely.by's.
+fn mojang_textures(name: &str) -> Option<Textures> {
+    let parse = |body: Vec<u8>| serde_json::from_slice::<serde_json::Value>(&body).ok();
+    let id = parse(http_get(&format!("{MOJANG_NAMES}{name}"))?)?;
+    let profile = parse(http_get(&format!(
+        "{MOJANG_PROFILES}{}",
+        id.get("id")?.as_str()?
+    ))?)?;
+    mojang_profile_textures(&profile)
+}
+
+/// The textures of a session server profile (`{"properties":[{"name":"textures","value":…}]}`).
+fn mojang_profile_textures(profile: &serde_json::Value) -> Option<Textures> {
+    let value = profile
+        .get("properties")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("textures"))?
+        .get("value")?
+        .as_str()?;
+    Some(unpack(value, Signature::Signed, &TEXTURE_URIS)).filter(|t| t.skin.is_some())
+}
+
+const MOJANG_NAMES: &str = "https://api.mojang.com/users/profiles/minecraft/";
+const MOJANG_PROFILES: &str = "https://sessionserver.mojang.com/session/minecraft/profile/";
+
 /// Whether `name` is one Ely.by could hold, and safe to put in its URL as it is.
 fn ely_name(name: &str) -> bool {
     (1..=32).contains(&name.len())
@@ -440,13 +499,19 @@ impl ElySkins {
         if !ely_name(name) || !self.asked.insert(uuid) {
             return;
         }
-        let (url, send) = (format!("{ELY_TEXTURES}{name}"), self.send.clone());
+        let (url, send, name) = (
+            format!("{ELY_TEXTURES}{name}"),
+            self.send.clone(),
+            name.to_owned(),
+        );
         let _ = std::thread::Builder::new()
             .name("horizon-ely-skin".into())
             .spawn(move || {
-                let Some(body) = http_get(&url) else { return };
-                let textures = ely_textures(&String::from_utf8_lossy(&body));
-                if textures.skin.is_some() {
+                let ely = http_get(&url)
+                    .map(|body| ely_textures(&String::from_utf8_lossy(&body)))
+                    .filter(|t| t.skin.is_some());
+                // Ely.by answers 204 for many Mojang accounts (jeb_, Technoblade): ask Mojang then.
+                if let Some(textures) = ely.or_else(|| mojang_textures(&name)) {
                     let _ = send.send((uuid, textures));
                 }
             });
@@ -589,6 +654,46 @@ mod tests {
             texture_hash("http://textures.minecraft.net/texture/abc.png?x=1").unwrap(),
             "abc"
         );
+    }
+
+    #[test]
+    fn mojang_profiles_become_textures() {
+        let payload = r#"{"textures":{"SKIN":{"url":"http://textures.minecraft.net/texture/ab"},"CAPE":{"url":"http://textures.minecraft.net/texture/cd"}}}"#;
+        let value: String = {
+            // base64 of the payload, by the standard alphabet.
+            const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            payload
+                .as_bytes()
+                .chunks(3)
+                .flat_map(|c| {
+                    let n =
+                        c.iter().fold(0u32, |a, &b| a << 8 | u32::from(b)) << (8 * (3 - c.len()));
+                    (0..4).map(move |i| {
+                        if i > c.len() {
+                            '='
+                        } else {
+                            A[(n >> (18 - 6 * i) & 63) as usize] as char
+                        }
+                    })
+                })
+                .collect()
+        };
+        let profile = serde_json::json!({"properties": [{"name": "textures", "value": value}]});
+        let t = super::mojang_profile_textures(&profile).unwrap();
+        assert!(t.signed);
+        assert_eq!(
+            t.cape.as_deref(),
+            Some("http://textures.minecraft.net/texture/cd")
+        );
+        assert!(super::mojang_profile_textures(&serde_json::json!({"properties": []})).is_none());
+        // A cape takes the top half of a skin slot; other sizes fail.
+        assert_eq!(
+            super::cape_in_slot(64, 32, &[7; 64 * 32 * 4])
+                .unwrap()
+                .len(),
+            64 * 64 * 4
+        );
+        assert!(super::cape_in_slot(22, 17, &[]).is_none());
     }
 
     #[test]

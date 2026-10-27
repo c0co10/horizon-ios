@@ -2934,6 +2934,7 @@ impl Game<'_> {
             .map(|(uuid, textures)| (*uuid, textures.clone()))
             .collect();
         let mut resolved: Vec<(u128, String)> = Vec::new();
+        let mut capes: Vec<(u128, String)> = Vec::new();
         // PlayerSkin.model, which the model follows whether or not the texture is ready.
         let slim: HashMap<u128, bool> = entries.iter().map(|(u, t)| (*u, t.slim)).collect();
         for (uuid, textures) in entries {
@@ -2947,9 +2948,18 @@ impl Game<'_> {
             };
             if let Some(skin) = skin {
                 resolved.push((uuid, skin));
+                // PlayerSkin.capeTexture: only with the skin it came with.
+                let cape = horizon_client::skins::cape(&textures, |kind, url| {
+                    self.skin_downloads.borrow_mut().state(kind, url)
+                });
+                if let Some(cape) = cape {
+                    capes.push((uuid, cape));
+                }
             }
         }
         resolved.retain(|(_, skin)| !skin.starts_with("skins/") || self.show_skin(skin));
+        capes.retain(|(_, cape)| self.show_skin(cape));
+        let capes: HashMap<u128, String> = capes.into_iter().collect();
         let Some((level, skins, own)) = self.remote.as_mut().map(|r| {
             r.skins = resolved.into_iter().collect();
             (
@@ -2974,6 +2984,7 @@ impl Game<'_> {
             {
                 mob.skin = Some(skin.clone());
                 mob.slim = slim.get(&uuid).copied().unwrap_or(false);
+                mob.cape = capes.get(&uuid).cloned();
             }
         }
         if let Some(skin) = own
@@ -2981,6 +2992,7 @@ impl Game<'_> {
         {
             mob.skin = Some(skin);
             mob.slim = slim.get(&local).copied().unwrap_or(false);
+            mob.cape = capes.get(&local).cloned();
         }
     }
     /// Puts a downloaded skin in an atlas skin slot: a free one, else the
@@ -3011,6 +3023,16 @@ impl Game<'_> {
             height: 64,
             rgba,
         });
+        // A cape is 64x32: the slot's top half.
+        let rect = if location.starts_with("capes/") {
+            horizon_client::hud::Rect {
+                v1: (rect.v0 + rect.v1) / 2.0,
+                h: rect.h / 2,
+                ..rect
+            }
+        } else {
+            rect
+        };
         self.gui.atlas.sprites.insert(location.clone(), rect);
         self.skin_slots.push((location, slot));
     }
