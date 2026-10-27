@@ -1,6 +1,17 @@
 //! UIKit UIKeyboardHIDUsage values are USB HID keyboard usages, independent of keyboard layout.
 use crate::keyboard::{Key, KeyCode, KeyLocation, NamedKey, NativeKey, NativeKeyCode, PhysicalKey};
 
+/// UIKit may spell navigation keys as `UIKeyInputUpArrow` instead of a
+/// control character. Named keys carry actions, never character input.
+pub(super) fn key_text(logical: &Key, text: &str) -> Option<smol_str::SmolStr> {
+    (matches!(logical, Key::Character(_))
+        && !text.is_empty()
+        && !text
+            .chars()
+            .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c)))
+    .then(|| text.into())
+}
+
 pub(super) fn physical_key(usage: usize) -> PhysicalKey {
     PhysicalKey::Code(match usage {
         4 => KeyCode::KeyA,
@@ -197,6 +208,30 @@ pub(super) fn logical_key(key: PhysicalKey, text: &str) -> Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn navigation_keys_keep_actions_without_inserting_uikit_names() {
+        for (usage, name, expected) in [
+            (82, "UIKeyInputUpArrow", NamedKey::ArrowUp),
+            (81, "UIKeyInputDownArrow", NamedKey::ArrowDown),
+            (80, "UIKeyInputLeftArrow", NamedKey::ArrowLeft),
+            (79, "UIKeyInputRightArrow", NamedKey::ArrowRight),
+            (43, "UIKeyInputTab", NamedKey::Tab),
+            (74, "UIKeyInputHome", NamedKey::Home),
+        ] {
+            let logical = logical_key(physical_key(usage), name);
+            assert_eq!(logical, Key::Named(expected));
+            assert_eq!(key_text(&logical, name), None);
+        }
+        assert_eq!(key_text(&Key::Named(NamedKey::ArrowUp), "\u{f700}"), None);
+        assert_eq!(
+            key_text(&logical_key(physical_key(4), "q"), "q").as_deref(),
+            Some("q")
+        );
+        assert_eq!(
+            key_text(&logical_key(physical_key(44), " "), " ").as_deref(),
+            Some(" ")
+        );
+    }
     #[test]
     fn layout_text_is_independent_of_gameplay_position() {
         let key = physical_key(4);

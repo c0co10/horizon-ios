@@ -42,3 +42,7 @@ notification path. This is lifecycle adoption, not an SDK-version spoof or runti
 
 Apple guidance: https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle
 and https://developer.apple.com/videos/play/wwdc2026/278/.
+
+Named hardware navigation keys do not produce text, even when UIKit supplies symbolic
+UIKeyInput names. Their physical/logical key actions are retained; printable layout text
+and space continue to produce character input. Host regression tests cover this mapping.
