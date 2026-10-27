@@ -5136,6 +5136,11 @@ impl Game<'_> {
         self.send(S::ClientCommand(play::ClientCommand { action: 0 }));
     }
 
+    /// Connected to a server (single player's own included) with no player yet: `ConnectScreen`, then
+    /// `LevelLoadingScreen`, over the title panorama.
+    pub(super) fn remote_loading(&self) -> bool {
+        self.remote.is_some() && self.player.is_none()
+    }
     /// Connecting / loading screens; true when it covered the frame.
     pub(super) fn remote_overlay(&self, batch: &mut HudBatch) -> bool {
         let Some(r) = &self.remote else { return false };
@@ -5144,7 +5149,18 @@ impl Game<'_> {
         }
         let atlas = &self.gui.atlas;
         let (w, h) = (batch.width, batch.height);
-        batch.fill(atlas, 0.0, 0.0, w, h, rgba(20, 20, 20, 255));
+        horizon_client::ui::menu_background(batch, atlas, 0.0, 0.0, w, h, false);
+        if r.joined {
+            // LevelLoadTracker: the player's 7x7 chunks as they arrive.
+            let (cx, cz) = r.chunk_center;
+            let ready = (-3..=3)
+                .flat_map(|dz| (-3..=3).map(move |dx| (cx + dx, cz + dz)))
+                .filter(|&(x, z)| self.streaming.is_lit(x, z))
+                .count();
+            let progress = horizon_client::level_loading::progress(ready);
+            horizon_client::level_loading::draw(batch, atlas, None, Some(progress));
+            return true;
+        }
         let shown = horizon_client::net::shown_address(&r.session.address);
         for (i, line) in [r.status.as_str(), shown.as_str()].iter().enumerate() {
             let tw = HudBatch::text_width(atlas, line);

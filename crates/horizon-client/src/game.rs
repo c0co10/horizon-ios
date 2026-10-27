@@ -9923,16 +9923,27 @@ impl Game<'_> {
         if let Some(loader) = &self.world_loader {
             if let Some(renderer) = &mut self.renderer {
                 let mut hud = HudBatch::new([renderer.config.width, renderer.config.height]);
-                horizon_client::level_loading::draw_progress(
-                    &mut hud,
-                    &self.gui.atlas,
-                    if loader.cancelled {
-                        "Cancelling world"
-                    } else {
-                        "Opening world"
-                    },
-                    0.0,
-                );
+                if loader.cancelled {
+                    horizon_client::level_loading::draw_progress(
+                        &mut hud,
+                        &self.gui.atlas,
+                        "Cancelling world",
+                        0.0,
+                    );
+                } else {
+                    // Minecraft.doWorldLoad shows LevelLoadingScreen from the start.
+                    let (w, h) = (hud.width, hud.height);
+                    horizon_client::ui::menu_background(
+                        &mut hud,
+                        &self.gui.atlas,
+                        0.0,
+                        0.0,
+                        w,
+                        h,
+                        false,
+                    );
+                    horizon_client::level_loading::draw(&mut hud, &self.gui.atlas, None, Some(0.0));
+                }
                 return renderer.render(&loading_frame(&hud));
             }
             return Ok(false);
@@ -10111,6 +10122,7 @@ impl Game<'_> {
         // which is on their half of the AirPlay display (game/splitscreen.rs).
         let title = self.title.is_some()
             || self.loading_reason() == Some(horizon_client::level_loading::Reason::Other)
+            || self.remote_loading()
             || (self.splitscreen.guest && !self.on_airplay());
         let (yaw, pitch) = if title {
             // PanoramaRenderer: the title cube spins at 0.1 degrees per tick, pitched 10 degrees.
@@ -10390,7 +10402,8 @@ impl Game<'_> {
     /// `Screen.extractBlurredBackground` over the panorama or the world and
     /// HUD, when `menuBackgroundBlurriness` is at least 1.
     fn menu_blur(&self) -> Option<f32> {
-        let loading = self.loading_reason() == Some(horizon_client::level_loading::Reason::Other);
+        let loading = self.loading_reason() == Some(horizon_client::level_loading::Reason::Other)
+            || self.remote_loading();
         let blurred = loading
             || self.title.as_ref().is_some_and(|t| {
                 matches!(self.screen, Screen::Options | Screen::Win)
