@@ -63,8 +63,9 @@ horizon-airplay = { path = "../horizon-airplay" }
 # HTTPS to the Minecraft services (online-mode session join).
 ureq = { version = "2", default-features = false, features = ["tls"] }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android"))'.dependencies]
-# The system clipboard, on the four targets arboard has a backend for. It is gated rather than plain
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+# The system clipboard, on the three targets arboard has a backend for (it has none for Android).
+# It is gated rather than plain
 # because of how arboard chooses one: its Linux branch is `cfg(all(unix, not(any(macos, android,
 # emscripten))))`, which an iPhone matches, so an ungated dependency gives a phone build x11rb (not
 # optional there) and wl-clipboard-rs with the whole Wayland stack in it, which cannot compile for

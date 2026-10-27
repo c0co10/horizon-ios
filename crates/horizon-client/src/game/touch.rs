@@ -154,7 +154,7 @@ impl Game<'_> {
         // splitscreen's second player, whose controller the phone is.
         (!self.on_airplay() || self.splitscreen.guest)
             && (self.touch.seen
-                || cfg!(target_os = "ios")
+                || cfg!(any(target_os = "ios", target_os = "android"))
                 || std::env::var_os("HORIZON_TOUCH").is_some_and(|v| v == "1"))
     }
 

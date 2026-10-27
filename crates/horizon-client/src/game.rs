@@ -328,7 +328,7 @@ impl Options {
         // On a phone, the folder an import unpacked into `Documents` is the one a player can reach. On
         // Linux, the game files a start downloaded live in the game's home (`import::home`). A desktop
         // without them gives the answer it has always given.
-        let sandbox = if cfg!(target_os = "ios") {
+        let sandbox = if cfg!(any(target_os = "ios", target_os = "android")) {
             std::env::current_dir().ok()
         } else if cfg!(target_os = "linux") {
             Some(horizon_client::import::home())
@@ -13135,8 +13135,20 @@ fn write_report(game: &Game<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Android's loop needs the activity `android_main` was handed; every other platform makes its own.
+fn event_loop() -> Result<EventLoop<()>> {
+    #[cfg(target_os = "android")]
+    {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+        let app = crate::android::APP.get().ok_or("no Android activity")?;
+        Ok(EventLoop::builder().with_android_app(app.clone()).build()?)
+    }
+    #[cfg(not(target_os = "android"))]
+    Ok(EventLoop::new()?)
+}
+
 fn run_event_loop(mut game: Game<'_>) -> Result<()> {
-    EventLoop::new()?.run_app(&mut game)?;
+    event_loop()?.run_app(&mut game)?;
     horizon_client::discord_presence::stop();
     write_report(&game)?;
     if let Some(e) = game.error.take() {
@@ -13573,7 +13585,7 @@ fn run_loading(
         error: None,
     };
     let mut app = App::Loading(Box::new(loading));
-    EventLoop::new()?.run_app(&mut app)?;
+    event_loop()?.run_app(&mut app)?;
     horizon_client::discord_presence::stop();
     match app {
         App::Ready(mut game, _) => {

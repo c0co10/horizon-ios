@@ -35,6 +35,7 @@
 
 /packaging/ios/HorizonIOS.xcodeproj/
 /third_party/winit/target/
+/crates/horizon-android/target/
 # Local iOS exports, signing material, and per-user Xcode state.
 *.ipa
 *.xcarchive/

@@ -106,7 +106,8 @@ pub fn resources_root(sibling: &Path, home: Option<&Path>) -> Option<PathBuf> {
 /// player nothing. Anywhere else it has to be asked for (`HORIZON_IMPORT_SCREEN`), which is how the
 /// screen is driven and tested on a machine with no phone in it.
 pub fn waits_on_screen() -> bool {
-    cfg!(target_os = "ios") || std::env::var_os("HORIZON_IMPORT_SCREEN").is_some()
+    cfg!(any(target_os = "ios", target_os = "android"))
+        || std::env::var_os("HORIZON_IMPORT_SCREEN").is_some()
 }
 
 /// The folder an import writes into: `Documents` on a phone, where the Files app and a cable both

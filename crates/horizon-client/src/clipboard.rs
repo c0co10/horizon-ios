@@ -108,12 +108,7 @@ pub trait Clipboard {
 
 /// The targets with a system clipboard arboard reaches: its Cargo.toml gate, and
 /// the reason `clipboard.rs` has two halves.
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "linux",
-    target_os = "android"
-))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod system {
     use super::Clipboard;
 
@@ -170,17 +165,12 @@ mod system {
     }
 }
 
-/// A target with no desktop clipboard: an iPhone, where arboard has no backend and the Wayland
-/// stack behind its Linux one cannot even compile. The game's own copy buffer is the whole of it,
+/// A target with no desktop clipboard: a phone, where arboard has no backend (and on an iPhone the
+/// Wayland stack behind its Linux one cannot even compile). The game's own copy buffer is the whole of it,
 /// which is the behaviour the half above already falls back to when no compositor answers — text
 /// copied in the game still pastes in the game, and `horizon-ctl status` still reports it. iOS's
 /// real pasteboard (`UIPasteboard`) would replace this module, not the code that calls it.
-#[cfg(not(any(
-    target_os = "macos",
-    target_os = "windows",
-    target_os = "linux",
-    target_os = "android"
-)))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod system {
     use super::Clipboard;
 

@@ -1,5 +1,8 @@
 //! Horizon: native Rust client for Minecraft Java Edition 26.3 gameplay.
-#![forbid(unsafe_code)]
+// Android's entry point has to be an unmangled symbol; everywhere else there is no unsafe code at all.
+#![cfg_attr(not(target_os = "android"), forbid(unsafe_code))]
+#[cfg(target_os = "android")]
+mod android;
 mod game;
 
 use horizon_client::{crash, logging};
@@ -40,6 +43,9 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // `android_main` already moved into the app's files folder.
+    #[cfg(target_os = "android")]
+    let documents = std::env::current_dir().unwrap_or_default();
     horizon_client::telemetry::mark_start();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let game_args = args.iter().take_while(|a| *a != "--dedicated");
@@ -55,7 +61,7 @@ fn main() {
         crash::install(home.clone(), side);
     }
     // What a phone does with its files before the game looks for them, once the log can say so.
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     if !help {
         // A swap that a flat battery or a crash left half done is finished, or the old tree put back,
         // before anything reads the folder it was working on.
