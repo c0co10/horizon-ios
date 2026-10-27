@@ -96,6 +96,15 @@ pub fn second_screen() -> Option<Screen> {
     None
 }
 
+/// The phone shows the game under its cover: splitscreen's second player's menus, which they tap there.
+/// Called every frame in splitscreen; off again when it ends.
+pub fn phone_shows_game(on: bool) {
+    #[cfg(target_os = "ios")]
+    ios::phone_shows_game(on);
+    #[cfg(not(target_os = "ios"))]
+    let _ = on;
+}
+
 /// The second player's touch controls on the phone, which then lets its touches through to the game; `None`
 /// takes them away and the cover takes the touches again.
 pub fn phone_controls(buttons: Option<&[Button]>) {
@@ -148,6 +157,8 @@ mod ios {
     thread_local! {
         static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
         static IDS: Cell<u64> = const { Cell::new(0) };
+        /// `phone_shows_game`: the cover stands aside.
+        static PHONE_GAME: Cell<bool> = const { Cell::new(false) };
     }
 
     fn next_id() -> u64 {
@@ -325,6 +336,7 @@ mod ios {
             if cover && state.cover.is_none() {
                 state.cover = cover_phone(MainThreadMarker::from(&*state.view.view));
             }
+            let cover = cover && !PHONE_GAME.with(Cell::get);
             if let Some(c) = &state.cover {
                 c.view.setHidden(!cover);
                 // The launcher or the keyboard may have put a view over it since.
@@ -350,6 +362,17 @@ mod ios {
             let (_, bottom) = state.halves.as_ref()?;
             Some(screen_of(state, bottom))
         })
+    }
+
+    pub(super) fn phone_shows_game(on: bool) {
+        PHONE_GAME.with(|p| p.set(on));
+        STATE.with(|s| {
+            if let Some(cover) = s.borrow().as_ref().and_then(|st| st.cover.as_ref())
+                && on
+            {
+                cover.view.setHidden(true);
+            }
+        });
     }
 
     pub(super) fn phone_controls(buttons: Option<&[Button]>) {

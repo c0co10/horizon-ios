@@ -121,7 +121,7 @@ impl Game<'_> {
     }
 
     /// The world is under the fingers, with no screen over it.
-    fn touch_playing(&self) -> bool {
+    pub(super) fn touch_playing(&self) -> bool {
         self.title.is_none()
             && self.screen == Screen::Playing
             && self.sign_edit.is_none()

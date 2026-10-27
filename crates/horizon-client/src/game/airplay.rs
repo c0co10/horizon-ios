@@ -36,10 +36,10 @@ pub(super) fn sync(
         Some(screen) => {
             let size = screen.size;
             log::info!("Horizon: AirPlay display at {}x{}", size.0, size.1);
-            renderer.set_target(Some(Arc::new(screen)), size)
+            renderer.set_target(Some((screen.id, Arc::new(screen))), size)
         }
         None => {
-            log::info!("Horizon: AirPlay display gone; back on the phone");
+            log::info!("Horizon: drawing on the phone");
             renderer.set_target(None, phone)
         }
     };

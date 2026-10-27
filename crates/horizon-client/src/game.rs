@@ -10107,8 +10107,11 @@ impl Game<'_> {
         // Map textures changed since the last drawn frame (game/maps.rs).
         hud.patches.append(&mut self.map_patches);
         // LevelLoadingScreen (Reason.OTHER) draws the title's panorama.
+        // Splitscreen's second player on the phone sees their menus there, over the panorama: never the world,
+        // which is on their half of the AirPlay display (game/splitscreen.rs).
         let title = self.title.is_some()
-            || self.loading_reason() == Some(horizon_client::level_loading::Reason::Other);
+            || self.loading_reason() == Some(horizon_client::level_loading::Reason::Other)
+            || (self.splitscreen.guest && !self.on_airplay());
         let (yaw, pitch) = if title {
             // PanoramaRenderer: the title cube spins at 0.1 degrees per tick, pitched 10 degrees.
             (

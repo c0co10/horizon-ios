@@ -1,7 +1,8 @@
 //! Splitscreen on an AirPlay display (iPhone and iPad; Horizon's own): the display splits top and bottom, the
-//! first player on top with the controller, and a second player below whose controller is the phone: its
-//! touch controls are drawn on the phone alone (horizon-airplay), and its menus are tapped as far across the
-//! phone as they are across their half. The second player is a second client `Game` joined to the window's
+//! first player on top with the controller, and a second player below whose controller is the phone: while
+//! they play, its touch controls are drawn on the phone alone (horizon-airplay); with a screen open (their
+//! inventory, a chest, the pause menu) their game draws on the phone instead, the screen over the panorama and
+//! never the world, and they tap it there. The second player is a second client `Game` joined to the window's
 //! integrated server through memory, as a LAN guest joins it, with its own renderer on the display's bottom
 //! half, no sound (the first player's plays) and no controller. The pause menu starts and ends it
 //! (game/screens.rs); the second player leaving the world, the first leaving theirs, or the AirPlay display
@@ -113,6 +114,7 @@ pub(super) fn update<'a>(host: &mut Game<'a>, guest: &mut Option<Box<Game<'a>>>)
         // Dropping the guest closes its connection, and the server sees the player leave.
         *guest = None;
         host.end_splitscreen();
+        horizon_airplay::phone_shows_game(false);
         horizon_airplay::phone_controls(None);
     }
     if request == Some(true) && guest.is_none() && host.splitscreen_available() {
@@ -128,10 +130,13 @@ pub(super) fn update<'a>(host: &mut Game<'a>, guest: &mut Option<Box<Game<'a>>>)
         }
     }
     if let Some(g) = guest {
-        // The bottom half, once the first player's game has split the display (its frame after the start).
-        let half = horizon_airplay::second_screen();
+        // Playing: the bottom half, once the first player's game has split the display (its frame after the
+        // start), and the buttons on the phone. A screen open: the phone, which shows it.
+        let menu = !g.touch_playing();
+        let half = horizon_airplay::second_screen().filter(|_| !menu);
         super::airplay::sync(g.renderer.as_mut(), g.window.as_ref(), &mut g.airplay, half);
-        let buttons = g.phone_buttons();
+        horizon_airplay::phone_shows_game(menu);
+        let buttons = if menu { Vec::new() } else { g.phone_buttons() };
         horizon_airplay::phone_controls(Some(&buttons));
     }
 }

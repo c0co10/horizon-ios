@@ -327,8 +327,11 @@ pub struct Renderer {
     /// CPU time of the last `render`, waits excluded.
     pub last_encode: std::time::Duration,
     window: Arc<Window>,
-    /// Where the surface is made instead of `window`: an AirPlay display (`set_target`).
-    target: Option<Arc<dyn wgpu::DisplayAndWindowHandle>>,
+    /// Where the surface is made instead of `window`, and that view's id: an AirPlay display (`set_target`).
+    target: Option<(u64, Arc<dyn wgpu::DisplayAndWindowHandle>)>,
+    /// Surfaces `set_target` moved away from, by view id (0 for the window), to move back to without
+    /// making another: a view keeps every layer a surface ever made on it.
+    parked: Vec<(u64, wgpu::Surface<'static>)>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
@@ -2304,6 +2307,7 @@ impl Renderer {
             last_encode: std::time::Duration::ZERO,
             window,
             target: None,
+            parked: Vec::new(),
             device,
             queue,
             config,
@@ -2471,11 +2475,28 @@ impl Renderer {
     /// `None`: the game on an AirPlay display. The window's own resizes are the caller's to ignore meanwhile.
     pub fn set_target(
         &mut self,
-        target: Option<Arc<dyn wgpu::DisplayAndWindowHandle>>,
+        target: Option<(u64, Arc<dyn wgpu::DisplayAndWindowHandle>)>,
         (width, height): (u32, u32),
     ) -> Result<()> {
+        if self.offscreen.is_some() {
+            return Ok(());
+        }
+        let key = |t: &Option<(u64, _)>| t.as_ref().map_or(0, |(id, _)| *id);
+        let (from, to) = (key(&self.target), key(&target));
+        if let Some(surface) = self.surface.take() {
+            self.parked.retain(|(id, _)| *id != from);
+            self.parked.push((from, surface));
+            // A few: the window and a display's views; one made again gets a new id.
+            if self.parked.len() > 4 {
+                self.parked.remove(0);
+            }
+        }
         self.target = target;
-        self.recreate_surface()?;
+        match self.parked.iter().position(|(id, _)| *id == to) {
+            Some(i) => self.surface = Some(self.parked.remove(i).1),
+            None => self.recreate_surface()?,
+        }
+        // Configures the surface at the new size.
         self.resize(width, height);
         Ok(())
     }
@@ -2491,7 +2512,7 @@ impl Renderer {
         // Wayland allows only one tearing-control object per window surface.
         self.release_surface();
         let surface = match &self.target {
-            Some(target) => self.instance.create_surface(target.clone())?,
+            Some((_, target)) => self.instance.create_surface(target.clone())?,
             None => self.instance.create_surface(self.window.clone())?,
         };
         surface.configure(&self.device, &self.config);
