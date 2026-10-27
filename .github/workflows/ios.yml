@@ -25,7 +25,8 @@ env:
 
 jobs:
   ipa:
-    runs-on: ${{ vars.MAC_RUNNER || 'macos-14' }}
+    # macos-14 stopped being handed out on 2026-10-27 ("not acquired by Runner of type hosted"); MAC_RUNNER overrides.
+    runs-on: ${{ vars.MAC_RUNNER || 'macos-15' }}
     timeout-minutes: 90
     defaults:
       run:
