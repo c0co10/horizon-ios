@@ -1279,6 +1279,8 @@ struct Game<'a> {
     touch: touch::TouchInput,
     /// The AirPlay display the renderer draws on, if any (game/airplay.rs).
     airplay: airplay::Shown,
+    /// Splitscreen's second player on the phone (game/splitscreen.rs).
+    splitscreen: splitscreen::Splitscreen,
     /// The Mojang Studios screen fading out after loading, and when loading finished.
     loading_overlay: Option<(horizon_client::loading_overlay::Overlay, Instant)>,
     frames: u64,
@@ -11693,7 +11695,8 @@ impl ApplicationHandler for Game<'_> {
                     self.limit_frame();
                     self.pause = self.pauses_game();
                     if let Some(server) = &self.integrated {
-                        server.set_paused(self.pause);
+                        // As vanilla's server open to the LAN: one player's pause holds no one else.
+                        server.set_paused(self.pause && !self.splitscreen.active);
                         server.set_distances(
                             self.settings.render_distance,
                             self.settings.simulation_distance,
@@ -11814,10 +11817,14 @@ impl ApplicationHandler for Game<'_> {
             event_loop.exit();
             return;
         }
-        self.tick_server_packs();
-        self.poll_control(event_loop);
-        self.poll_launcher(event_loop);
-        self.sync_airplay();
+        // The second player of splitscreen is a client and nothing else: the launcher, the control
+        // socket and the AirPlay display are the first player's.
+        if !self.splitscreen.guest {
+            self.tick_server_packs();
+            self.poll_control(event_loop);
+            self.poll_launcher(event_loop);
+            self.sync_airplay();
+        }
         if self.pending_save.is_some() {
             return;
         }
@@ -12016,6 +12023,7 @@ impl<'a> Game<'a> {
             pad: Default::default(),
             touch: Default::default(),
             airplay: None,
+            splitscreen: Default::default(),
             loading_overlay: None,
             frames: 0,
             world_frames: 0,
@@ -13431,23 +13439,34 @@ impl Loading {
 /// the game itself, on the same event loop and window.
 enum App {
     Loading(Box<Loading>),
-    Ready(Box<Game<'static>>),
+    /// The game, and splitscreen's second player on the phone (game/splitscreen.rs).
+    Ready(Box<Game<'static>>, Option<Box<Game<'static>>>),
 }
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         match self {
             App::Loading(loading) => loading.resumed(event_loop),
-            App::Ready(game) => game.resumed(event_loop),
+            App::Ready(game, _) => game.resumed(event_loop),
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         match self {
             App::Loading(loading) => loading.window_event(event_loop, id, event),
-            App::Ready(game) => game.window_event(event_loop, id, event),
+            App::Ready(game, None) => game.window_event(event_loop, id, event),
+            App::Ready(game, Some(guest)) => {
+                if splitscreen::guest_input(&event) {
+                    guest.window_event(event_loop, id, event);
+                } else if matches!(event, WindowEvent::CloseRequested) {
+                    game.window_event(event_loop, id, event);
+                } else {
+                    game.window_event(event_loop, id, event.clone());
+                    guest.window_event(event_loop, id, event);
+                }
+            }
         }
     }
     fn device_event(&mut self, event_loop: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
-        if let App::Ready(game) = self {
+        if let App::Ready(game, _) = self {
             game.device_event(event_loop, id, event);
         }
     }
@@ -13459,8 +13478,12 @@ impl ApplicationHandler for App {
             Failed(Box<dyn std::error::Error>),
         }
         let step = match self {
-            App::Ready(game) => {
+            App::Ready(game, guest) => {
                 game.about_to_wait(event_loop);
+                if let Some(guest) = guest {
+                    guest.about_to_wait(event_loop);
+                }
+                splitscreen::update(game, guest);
                 return;
             }
             App::Loading(loading) => {
@@ -13486,7 +13509,7 @@ impl ApplicationHandler for App {
         };
         match step {
             Step::Waiting => {}
-            Step::Ready(game) => *self = App::Ready(game),
+            Step::Ready(game) => *self = App::Ready(game, None),
             Step::Done => event_loop.exit(),
             Step::Failed(e) => {
                 // A phone with nothing to load has one useful move left: stay open and say what it
@@ -13505,7 +13528,7 @@ impl ApplicationHandler for App {
         }
     }
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
-        if let App::Ready(game) = self {
+        if let App::Ready(game, _) = self {
             game.exiting(event_loop);
         }
     }
@@ -13550,7 +13573,7 @@ fn run_loading(
     EventLoop::new()?.run_app(&mut app)?;
     horizon_client::discord_presence::stop();
     match app {
-        App::Ready(mut game) => {
+        App::Ready(mut game, _) => {
             write_report(&game)?;
             if let Some(e) = game.error.take() {
                 return Err(e);
@@ -13782,6 +13805,7 @@ mod runtime_reset_tests {
 
 #[cfg(test)]
 mod entity_model_loading_tests;
+mod splitscreen;
 
 #[cfg(test)]
 mod tests {
