@@ -4,6 +4,25 @@
 //! player makes here depart from it.
 use std::{fs, path::Path};
 
+fn legacy_shader_choice(text: &str) -> Option<String> {
+    let mut enabled = true;
+    let mut name = None;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with(['#', '!']) {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(['=', ':']) else {
+            continue;
+        };
+        match key.trim() {
+            "enableShaders" => enabled = value.trim() == "true",
+            "shaderPack" => name = Some(value.trim().to_owned()).filter(|name| !name.is_empty()),
+            _ => {}
+        }
+    }
+    name.filter(|_| enabled)
+}
+
 pub const FILE: &str = "horizon-graphics.txt";
 
 /// Simple-level presets. `Custom` leaves every option as the player set it.
@@ -98,19 +117,27 @@ impl PresentMode {
 /// macOS). Applies at the next start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum GraphicsApi {
-    /// Vulkan, and DirectX 12 when Vulkan has no adapter or device.
+    /// Vulkan, then DirectX 12 (Windows), then OpenGL when neither has a surface, adapter or device.
     #[default]
     Auto,
     Vulkan,
     Dx12,
+    /// OpenGL, for GPUs with no Vulkan or DirectX 12 driver (Windows and Linux).
+    OpenGl,
 }
 impl GraphicsApi {
-    pub const ALL: [GraphicsApi; 3] = [GraphicsApi::Auto, GraphicsApi::Vulkan, GraphicsApi::Dx12];
+    pub const ALL: [GraphicsApi; 4] = [
+        GraphicsApi::Auto,
+        GraphicsApi::Vulkan,
+        GraphicsApi::Dx12,
+        GraphicsApi::OpenGl,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             GraphicsApi::Auto => "auto",
             GraphicsApi::Vulkan => "vulkan",
             GraphicsApi::Dx12 => "dx12",
+            GraphicsApi::OpenGl => "opengl",
         }
     }
     pub fn label(self) -> &'static str {
@@ -118,6 +145,7 @@ impl GraphicsApi {
             GraphicsApi::Auto => "Auto",
             GraphicsApi::Vulkan => "Vulkan",
             GraphicsApi::Dx12 => "DirectX 12",
+            GraphicsApi::OpenGl => "OpenGL",
         }
     }
     /// The API a name stands for, ignoring case; `None` for anything else.
@@ -126,7 +154,7 @@ impl GraphicsApi {
             .into_iter()
             .find(|api| api.name().eq_ignore_ascii_case(s.trim()))
     }
-    /// `HORIZON_GRAPHICS_API` (auto, vulkan or dx12) if set, else the setting.
+    /// `HORIZON_GRAPHICS_API` (auto, vulkan, dx12 or opengl) if set, else the setting.
     pub fn with_env(self) -> Self {
         std::env::var("HORIZON_GRAPHICS_API")
             .ok()
@@ -246,12 +274,22 @@ pub struct Graphics {
     pub resolution_scale: u32,
     /// FXAA over the world.
     pub fxaa: bool,
+    /// HDR output (scRGB), where the display path offers it.
+    pub hdr: bool,
+    /// HDR paper white (where SDR white sits), in nits.
+    pub hdr_paper_white: u32,
+    /// HDR peak brightness the world's highlights reach, in nits.
+    pub hdr_peak: u32,
     /// Battery mode: at most 60 frames per second in a world and 30 in menus
     /// or behind other windows, and half the worker threads. Off by default;
     /// it changes when frames are drawn, never what they show or the ticks.
     pub battery: bool,
     /// The graphics API (Windows only; see `GraphicsApi`).
     pub api: GraphicsApi,
+    /// The shader pack picked in `shaderpacks/` (`shader_pack_list`); empty: none. Its key is
+    /// not `shaderPack`, which versions before the clean-room rewrite saved and which stays
+    /// ignored.
+    pub shader_pack: String,
 }
 impl Default for Graphics {
     fn default() -> Self {
@@ -275,8 +313,12 @@ impl Default for Graphics {
             // 14 ms of CPU a frame); the HUD stays at the screen's own resolution.
             resolution_scale: if cfg!(target_os = "android") { 50 } else { 100 },
             fxaa: false,
+            hdr: false,
+            hdr_paper_white: 200,
+            hdr_peak: 1000,
             battery: false,
             api: GraphicsApi::Auto,
+            shader_pack: String::new(),
         }
     }
 }
@@ -285,9 +327,18 @@ fn bool_text(v: bool) -> &'static str {
 }
 impl Graphics {
     pub fn load(dir: &Path) -> Self {
-        fs::read_to_string(dir.join(FILE))
-            .map(|t| Self::parse(&t))
-            .unwrap_or_default()
+        let text = fs::read_to_string(dir.join(FILE)).unwrap_or_default();
+        let mut settings = Self::parse(&text);
+        // Older mobile builds saved the pack in Iris's properties file. An
+        // explicit new-format choice, including Off, always wins.
+        if !text.lines().any(|line| {
+            line.split_once(':')
+                .is_some_and(|(key, _)| key.trim() == "pickedShaderPack")
+        }) && let Ok(legacy) = fs::read_to_string(dir.join("config/iris.properties"))
+        {
+            settings.shader_pack = legacy_shader_choice(&legacy).unwrap_or_default();
+        }
+        settings
     }
     pub fn parse(text: &str) -> Self {
         let mut g = Self::default();
@@ -325,8 +376,12 @@ impl Graphics {
                 "workers" => g.workers = number(g.workers).min(64),
                 "resolutionScale" => g.resolution_scale = number(g.resolution_scale).clamp(50, 200),
                 "fxaa" => g.fxaa = flag(g.fxaa),
+                "hdr" => g.hdr = flag(g.hdr),
+                "hdrPaperWhite" => g.hdr_paper_white = number(g.hdr_paper_white).clamp(80, 480),
+                "hdrPeak" => g.hdr_peak = number(g.hdr_peak).clamp(200, 2000),
                 "batteryMode" => g.battery = flag(g.battery),
                 "graphicsApi" => g.api = GraphicsApi::from_name(value).unwrap_or_default(),
+                "pickedShaderPack" => g.shader_pack = value.to_owned(),
                 "overlay" => {
                     g.overlay = match value {
                         "fps" => Overlay::Fps,
@@ -341,7 +396,7 @@ impl Graphics {
     }
     pub fn serialize(&self) -> String {
         format!(
-            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\nbatteryMode:{}\ngraphicsApi:{}\n",
+            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\nhdr:{}\nhdrPaperWhite:{}\nhdrPeak:{}\nbatteryMode:{}\ngraphicsApi:{}\npickedShaderPack:{}\n",
             self.preset.name(),
             self.lod_distance,
             self.far_detail.name(),
@@ -366,8 +421,12 @@ impl Graphics {
             },
             self.resolution_scale,
             bool_text(self.fxaa),
+            bool_text(self.hdr),
+            self.hdr_paper_white,
+            self.hdr_peak,
             bool_text(self.battery),
             self.api.name(),
+            self.shader_pack,
         )
     }
     pub fn save(&self, dir: &Path) {
@@ -378,18 +437,22 @@ impl Graphics {
         if self.workers > 0 {
             return self.workers as usize;
         }
-        // The pool never takes every core. The render thread and the
-        // integrated server thread (single player runs on its own server
-        // thread by default) each need one, and a pool that fills every core
-        // starves them: the frame rate collapses to single digits while the
-        // workers saturate the CPU and its memory bandwidth.
-        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        // Vanilla's count (Util.maxAllowedExecutorThreads: every core but
+        // one). The pool never takes every core: a pool that fills them all
+        // starves the render and server threads, and the frame rate collapses
+        // while the workers saturate the CPU and its memory bandwidth. One
+        // core left is enough with the workers behind those two threads
+        // (horizon_threads: niced on Linux; on macOS and Windows the server
+        // and render threads are raised above four cores, where vanilla
+        // raises its server thread). Leaving two idled a core of a 4-thread
+        // laptop while a world loaded: a teleport there took ~15% longer.
         // A phone's cores are half slow ones (big.LITTLE): workers on all of them still crowd the fast half
         // the render and server threads need.
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
         let auto = if cfg!(target_os = "android") {
             cores / 2
         } else {
-            cores.saturating_sub(2)
+            cores.saturating_sub(1)
         }
         .max(1);
         if self.battery { auto.div_ceil(2) } else { auto }
@@ -431,7 +494,7 @@ pub fn apply_preset(preset: Preset, s: &mut crate::settings::Settings) {
     let g = &mut s.horizon;
     g.preset = preset;
     g.cave_culling = true;
-    g.animated_textures = preset != Preset::Performance;
+    g.animated_textures = true;
     g.chunk_updates = 0;
     g.upload_budget_kib = 0;
     g.sky = true;
@@ -442,6 +505,24 @@ pub fn apply_preset(preset: Preset, s: &mut crate::settings::Settings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mobile_shader_choice_migrates_without_reenabling_explicit_off() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-shader-migration-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(
+            root.join("config/iris.properties"),
+            "shaderPack=Example.zip\nenableShaders=true\n",
+        )
+        .unwrap();
+        assert_eq!(Graphics::load(&root).shader_pack, "Example.zip");
+        std::fs::write(root.join(FILE), "pickedShaderPack:\n").unwrap();
+        assert_eq!(Graphics::load(&root).shader_pack, "");
+        std::fs::write(root.join(FILE), "pickedShaderPack:Native.hshader\n").unwrap();
+        assert_eq!(Graphics::load(&root).shader_pack, "Native.hshader");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn round_trips() {
@@ -463,8 +544,12 @@ mod tests {
             overlay: Overlay::Graph,
             resolution_scale: 75,
             fxaa: true,
+            hdr: true,
+            hdr_paper_white: 240,
+            hdr_peak: 1400,
             battery: true,
             api: GraphicsApi::Dx12,
+            shader_pack: "Golden Hour".into(),
         };
         assert_eq!(Graphics::parse(&g.serialize()), g);
         assert_eq!(Graphics::parse(""), Graphics::default());
@@ -553,11 +638,11 @@ mod tests {
     }
 
     #[test]
-    fn automatic_workers_leave_cores_for_the_render_and_server_threads() {
+    fn automatic_workers_leave_a_core_as_vanilla_does() {
         let g = Graphics::default();
         assert_eq!(g.workers, 0);
         let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
-        assert_eq!(g.worker_threads(), cores.saturating_sub(2).max(1));
+        assert_eq!(g.worker_threads(), cores.saturating_sub(1).max(1));
         // A manual count is the player's own choice, kept as asked.
         let manual = Graphics { workers: 3, ..g };
         assert_eq!(manual.worker_threads(), 3);

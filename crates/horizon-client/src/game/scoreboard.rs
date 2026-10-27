@@ -132,8 +132,16 @@ impl Game<'_> {
         match t {
             Target::Player => Some(self.acting_player_name().to_owned()),
             Target::Guest(conn) => self.command_guest(conn).map(|g| g.name.clone()),
-            Target::Mob(id) | Target::Item(id) => Some(uuid_text(self.uuid_for(id))),
-            _ => None,
+            Target::Mob(id)
+            | Target::Item(id)
+            | Target::Stand(id)
+            | Target::Frame(id)
+            | Target::Painting(id)
+            | Target::Boat(id)
+            | Target::Cart(id)
+            | Target::Other(id) => Some(uuid_text(self.uuid_for(id))),
+            // Orbs and projectiles are addressed by index and have no UUID here.
+            Target::Orb(_) | Target::Projectile(_) => None,
         }
     }
     fn holder_for(&mut self, t: Target) -> Option<Holder> {
@@ -332,6 +340,7 @@ impl Game<'_> {
             return;
         }
         self.load_scoreboard();
+        host.hub.teams.clone_from(&self.score.board.teams);
         let view = horizon_client::lan::scoreboard::View::of(&self.score.board);
         for g in host.hub.guests.iter_mut().filter(|g| g.placed) {
             if g.scoreboard != view {

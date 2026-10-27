@@ -7,6 +7,11 @@ mod game;
 
 use horizon_client::{crash, logging};
 
+/// The mod API level this game serves, kept in the program for the launcher
+/// to read without running it (`horizon_mods::api_level::MARK`). `main`
+/// reads it, so the linker keeps it.
+static MOD_API_LEVEL: [u8; 27] = horizon_mods::api_level::MARK;
+
 /// Start the game where a phone lets it write.
 ///
 /// iOS hands an app a working directory of `/`, which is read-only, while the game builds its world saves,
@@ -35,6 +40,7 @@ fn into_app_sandbox() -> Result<std::path::PathBuf, String> {
 fn main() {
     // Before the event loop: iOS asks for the AirPlay scene's delegate by name when a display connects.
     horizon_airplay::register();
+    std::hint::black_box(&MOD_API_LEVEL);
     #[cfg(target_os = "ios")]
     let documents = match into_app_sandbox() {
         Ok(documents) => documents,

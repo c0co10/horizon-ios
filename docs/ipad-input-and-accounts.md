@@ -6,6 +6,8 @@ The vendored winit patch maps UIKit hardware key presses and releases to physica
 while retaining layout-dependent characters for text fields. Cancellations, focus loss, and
 responder loss release held input. Software text entry continues through `set_ime_allowed`.
 The game uses the player's existing key bindings; menu navigation reuses the controller targets.
+Named navigation keys emit no text, including UIKit symbolic key names, so chat history and
+command-suggestion navigation cannot append those identifiers.
 
 On iPad, `UIViewController.prefersPointerLocked` requests capture and GameController `GCMouse`
 handlers provide relative movement, buttons, and scrolling. Captured indirect-pointer touches are
@@ -53,16 +55,31 @@ The visible hover tooltip includes `minecraft:lore` after the name. Lore keeps c
 fonts, bold/italic settings, legacy formatting, and blank lines. Shared tooltip layout measures
 and draws styled text, and `minecraft:tooltip_display` still controls visibility.
 
-## Shader limitations
+## Upstream renderer and mobile runtime integration
 
-The iOS renderer uses wgpu with Metal. The legacy-format shader loader currently supplies
-post-processing, not pack-driven terrain/entity/water geometry or shadow maps. Packs requiring
-those inputs are rejected as incomplete; running their remaining final passes can hide the world.
-A saved selection is separate from runtime compatibility. The Packs page reports loaded programs
-and warnings; zero usable passes preserve normal rendering and FXAA.
+The iOS renderer explicitly selects Metal. Desktop clipboard, OpenGL and Vulkan HDR paths remain
+gated away from iOS. The native launcher, sandbox startup, scene lifecycle, touch and hardware
+input are retained alongside the newer client-core/command libraries and network implementation.
 
-This does not establish support for Complementary, Solas, arbitrary core-shader replacements,
-or Horizon-native `.hshader` renderer hooks. Those need renderer implementation and visual tests.
+Legacy shader packs can now supply terrain/water, entity, sky, weather, hand and shadow stages.
+Horizon-native `.hshader` sky/material/post hooks are also available. Shader source processing
+and legacy pipeline compilation use separate large-stack workers, with one active job per stage
+and a replaceable queued pipeline request. The UI polls results without joining workers; context,
+dimension and generation checks reject stale results. Unsupported required stages fall back to
+normal rendering, including failed shadow programs. Intentional depth-only geometry is valid.
+
+The mobile shader picker uses the same graphics settings as the game and migrates the former
+`iris.properties` selection only when no explicit new-format choice exists. Off stays Off.
+Failed native hot reloads report the previous programs when those are still running.
+
+The decoded-chunk result queue is bounded without making the render thread wait. Unused world
+preloads can expire while the launcher covers the game. Mobile builds retain native optional
+zoom/minimap/FPS/keystroke functionality because the Wasm runtime stays disabled.
+
+Pipeline creation is not a visual compatibility or performance certification for any real pack.
+Solas shadow translation remains unsupported in the tested configuration; its failure preserves
+normal rendering. Pack-specific appearance, shader memory use, thermal behavior and frame times
+need physical-device validation.
 
 ## Verification
 

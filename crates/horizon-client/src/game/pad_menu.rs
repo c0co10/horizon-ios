@@ -105,6 +105,8 @@ impl Game<'_> {
             || self.screen != Screen::Playing
             || self.sign_edit.is_some()
             || self.book.is_some()
+            || self.server_packs.prompt.is_some()
+            || self.dialog_open()
     }
 
     pub(super) fn gui_scale(&self) -> Option<HudBatch> {
@@ -903,9 +905,11 @@ impl Game<'_> {
             .title
             .as_mut()
             .is_some_and(|t| t.focused_field().is_some());
-        title_field
-            || self.pad_typing()
-            || (self.screen == Screen::Options && self.ui.options.typing())
+        self.dialog_text_focused()
+            || (!self.dialog_open()
+                && (title_field
+                    || self.pad_typing()
+                    || (self.screen == Screen::Options && self.ui.options.typing())))
     }
 
     /// The focused field's box (GUI pixels), where the screen can say: a title screen's field or an options
@@ -1046,7 +1050,13 @@ impl Game<'_> {
             }
         };
         let backspace = key == Some(KeyCode::Backspace);
-        if self.screen == Screen::Chat && self.title.is_none() {
+        if self.dialog_open() {
+            if let Some(key) = key {
+                let _ = self.dialog_key(key, None, text);
+            } else if let Some(text) = text {
+                self.dialog_type(text);
+            }
+        } else if self.screen == Screen::Chat && self.title.is_none() {
             match text {
                 Some(t) => self.chat_type(t),
                 None => self.chat_key_code(key.expect("a key"), None),
@@ -1056,8 +1066,10 @@ impl Game<'_> {
         } else if self.book.is_some() {
             self.book_input(key, text);
         } else if self.screen == Screen::Creative && self.creative_screen.tab().search {
-            if key != Some(KeyCode::Enter) {
-                self.creative_search_edit(text, backspace);
+            if backspace {
+                self.creative_search_backspace(false);
+            } else if key != Some(KeyCode::Enter) {
+                self.creative_search_edit(text);
             }
         } else if self.recipe_search_focused() {
             if key != Some(KeyCode::Enter) {

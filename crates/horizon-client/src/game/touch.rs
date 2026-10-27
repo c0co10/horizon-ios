@@ -126,6 +126,8 @@ impl Game<'_> {
             && self.screen == Screen::Playing
             && self.sign_edit.is_none()
             && self.book.is_none()
+            && self.server_packs.prompt.is_none()
+            && !self.dialog_open()
             && self.player.is_some()
     }
 

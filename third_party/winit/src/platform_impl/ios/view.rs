@@ -7,11 +7,11 @@ use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_foundation::{CGFloat, CGPoint, CGRect, MainThreadMarker, NSObject, NSSet, NSString};
 use objc2_ui_kit::{
-    UIHoverGestureRecognizer, UICoordinateSpace, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
-    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput, UIPanGestureRecognizer,
-    UIPinchGestureRecognizer, UIPress, UIPressesEvent, UIResponder, UIRotationGestureRecognizer,
-    UITapGestureRecognizer, UITextInputTraits, UITouch, UITouchPhase, UITouchType,
-    UITraitEnvironment, UIView,
+    UICoordinateSpace, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
+    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIHoverGestureRecognizer, UIKeyInput,
+    UIPanGestureRecognizer, UIPinchGestureRecognizer, UIPress, UIPressesEvent, UIResponder,
+    UIRotationGestureRecognizer, UITapGestureRecognizer, UITextInputTraits, UITouch, UITouchPhase,
+    UITouchType, UITraitEnvironment, UIView,
 };
 
 use super::app_state::{self, EventWrapper};
@@ -435,7 +435,13 @@ impl WinitView {
         let this: Retained<Self> = unsafe { msg_send_id![super(this), initWithFrame: frame] };
 
         this.setMultipleTouchEnabled(true);
-        let hover = unsafe { UIHoverGestureRecognizer::initWithTarget_action(mtm.alloc(), Some(&*this), Some(sel!(hardwareHover:))) };
+        let hover = unsafe {
+            UIHoverGestureRecognizer::initWithTarget_action(
+                mtm.alloc(),
+                Some(&*this),
+                Some(sel!(hardwareHover:)),
+            )
+        };
         this.addGestureRecognizer(&hover);
 
         if let Some(scale_factor) = window_attributes.platform_specific.scale_factor {
@@ -599,15 +605,26 @@ impl WinitView {
             };
             if touch_type == UITouchType::IndirectPointer {
                 touch_events.push(EventWrapper::StaticEvent(Event::WindowEvent {
-                    window_id: RootWindowId(window.id()), event: WindowEvent::CursorMoved {
-                        device_id: DEVICE_ID, position: physical_location,
+                    window_id: RootWindowId(window.id()),
+                    event: WindowEvent::CursorMoved {
+                        device_id: DEVICE_ID,
+                        position: physical_location,
                     },
                 }));
-                if matches!(phase, TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled) {
+                if matches!(
+                    phase,
+                    TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled
+                ) {
                     touch_events.push(EventWrapper::StaticEvent(Event::WindowEvent {
-                        window_id: RootWindowId(window.id()), event: WindowEvent::MouseInput {
-                            device_id: DEVICE_ID, button: crate::event::MouseButton::Left,
-                            state: if phase == TouchPhase::Started { ElementState::Pressed } else { ElementState::Released },
+                        window_id: RootWindowId(window.id()),
+                        event: WindowEvent::MouseInput {
+                            device_id: DEVICE_ID,
+                            button: crate::event::MouseButton::Left,
+                            state: if phase == TouchPhase::Started {
+                                ElementState::Pressed
+                            } else {
+                                ElementState::Released
+                            },
                         },
                     }));
                 }
@@ -708,15 +725,15 @@ impl WinitView {
             }
             let text = unsafe { key.characters() }.to_string();
             let logical_key = super::hardware_keyboard::logical_key(physical_key, &text);
+            let event_text = if state == ElementState::Pressed {
+                super::hardware_keyboard::key_text(&logical_key, &text)
+            } else {
+                None
+            };
             let event = KeyEvent {
                 physical_key,
                 logical_key,
-                text: (state == ElementState::Pressed
-                    && !text.is_empty()
-                    && !text
-                        .chars()
-                        .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c)))
-                .then(|| text.into()),
+                text: event_text,
                 location: super::hardware_keyboard::location(physical_key),
                 state,
                 repeat: state == ElementState::Pressed

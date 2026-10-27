@@ -45,7 +45,7 @@ fn favour() -> bool {
 /// behind the server thread and the render thread (`behind_server`).
 static HELPERS_BEHIND: AtomicBool = AtomicBool::new(false);
 
-/// How many nice levels a helper thread goes below the process on Linux.
+/// How many nice levels a helper thread goes below the process on Linux and Android.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const BEHIND: i32 = 10;
 
@@ -72,7 +72,7 @@ pub fn behind_server() -> bool {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn behind() -> bool {
     // SAFETY: these read and set the calling thread's own nice value or
-    // policy (who 0, pid 0 is the calling thread on Linux); `param` lives
+    // policy (who 0, pid 0 is the calling thread on Linux and Android); `param` lives
     // across the call.
     unsafe {
         let nice = libc::getpriority(libc::PRIO_PROCESS as _, 0);
@@ -89,6 +89,74 @@ fn behind() -> bool {
 fn behind() -> bool {
     false
 }
+
+/// Run the calling thread only on a core nothing else wants: work that may
+/// take seconds and that nothing waits for yet (the stronghold rings while a
+/// world opens). The idle class on Linux, background quality of service on
+/// macOS, idle priority on Windows. Whether the OS took it.
+pub fn idle_current() -> bool {
+    idle()
+}
+
+#[cfg(target_os = "linux")]
+fn idle() -> bool {
+    let param = libc::sched_param { sched_priority: 0 };
+    // SAFETY: sets the calling thread's own policy (pid 0); `param` lives
+    // across the call.
+    unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) == 0 }
+}
+
+#[cfg(target_vendor = "apple")]
+fn idle() -> bool {
+    // SAFETY: sets the calling thread's own QoS class; no pointers.
+    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_BACKGROUND, 0) == 0 }
+}
+
+#[cfg(windows)]
+fn idle() -> bool {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_IDLE,
+    };
+    // SAFETY: GetCurrentThread's pseudo handle needs no closing.
+    unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) != 0 }
+}
+
+#[cfg(not(any(target_os = "linux", target_vendor = "apple", windows)))]
+fn idle() -> bool {
+    false
+}
+
+/// Give back to the OS the memory the allocator holds free, after something
+/// large was dropped: glibc keeps freed pages in the arena of the thread that
+/// allocated them, and macOS in its zones until memory runs short. Nothing
+/// elsewhere.
+pub fn release_free_memory() {
+    release();
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release() {
+    // SAFETY: returns free heap pages of every arena to the OS; no live
+    // allocation moves.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+fn release() {
+    unsafe extern "C" {
+        fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+    }
+    // SAFETY: a null zone means every zone and a goal of 0 as much as it can;
+    // it frees only pages no allocation uses.
+    unsafe {
+        malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
+#[cfg(not(any(all(target_os = "linux", target_env = "gnu"), target_vendor = "apple")))]
+fn release() {}
 
 #[cfg(test)]
 mod tests {
@@ -117,7 +185,7 @@ mod tests {
     }
 
     /// A helper goes behind only once a dedicated server asks for it, and
-    /// then, on Linux, 10 nice levels below the process or in the idle class.
+    /// then, on Linux and Android, 10 nice levels below the process or in the idle class.
     #[test]
     fn helpers_go_behind_only_when_asked() {
         assert!(!std::thread::spawn(super::behind_server).join().unwrap());
@@ -144,5 +212,23 @@ mod tests {
         .unwrap();
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
         assert!(!std::thread::spawn(super::behind_server).join().unwrap());
+    }
+
+    /// The idle hint holds on the three platforms.
+    #[test]
+    fn idling_a_thread_takes() {
+        let took = std::thread::spawn(super::idle_current).join().unwrap();
+        assert_eq!(
+            took,
+            cfg!(any(target_os = "linux", target_vendor = "apple", windows))
+        );
+        #[cfg(target_os = "linux")]
+        std::thread::spawn(|| {
+            assert!(super::idle_current());
+            // SAFETY: reads the calling thread's own policy.
+            assert_eq!(unsafe { libc::sched_getscheduler(0) }, libc::SCHED_IDLE);
+        })
+        .join()
+        .unwrap();
     }
 }

@@ -24,6 +24,7 @@ horizon-threads = { path = "../horizon-threads" }
 horizon-world = { path = "../horizon-world" }
 horizon-protocol = { path = "../horizon-protocol" }
 horizon-shaders = { path = "../horizon-shaders" }
+horizon-shader-api = { path = "../horizon-shader-api" }
 horizon-friends = { path = "../horizon-friends" }
 horizon-mods = { path = "../horizon-mods", default-features = false }
 horizon-telemetry = { path = "../horizon-telemetry", default-features = false, features = ["live"] }
