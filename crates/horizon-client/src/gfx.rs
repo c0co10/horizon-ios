@@ -517,14 +517,21 @@ pub struct Renderer {
 /// `max_texture_array_layers` of the GPUs Horizon runs on. Mods add sprites
 /// past it into more arrays (terrain.wgsl's `sprite`).
 pub(crate) const SPRITE_SPLIT: u32 = 2048;
-/// [`SPRITE_SPLIT`], or a smaller split from `HORIZON_SPRITE_SPLIT` (dev
-/// only: vanilla's sprites drawn from several arrays must look the same).
+/// The open adapter's `max_texture_array_layers` (`describe_adapter`): a phone's
+/// Mali-G51 has 256, fewer than vanilla's sprites, which then take several arrays.
+static GPU_LAYERS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(SPRITE_SPLIT);
+/// [`SPRITE_SPLIT`] or the GPU's smaller limit, or a smaller split from
+/// `HORIZON_SPRITE_SPLIT` (dev only: vanilla's sprites drawn from several
+/// arrays must look the same).
 fn sprite_split() -> u32 {
+    let gpu = GPU_LAYERS
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .clamp(1, SPRITE_SPLIT);
     std::env::var("HORIZON_SPRITE_SPLIT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .filter(|&n| (1..=SPRITE_SPLIT).contains(&n))
-        .unwrap_or(SPRITE_SPLIT)
+        .filter(|&n| (1..=gpu).contains(&n))
+        .unwrap_or(gpu)
 }
 /// Sprite arrays terrain.wgsl binds (`sprites`, `sprites_1`...).
 const SPRITE_ARRAYS: u32 = 8;
@@ -594,6 +601,8 @@ fn terrain_group(
 /// construction so the temporary mip chains are released after GPU upload.
 pub struct PreparedTextures {
     sprites: Vec<(Vec<u8>, u32)>,
+    /// Layers per array: made before the device is open, so the renderer remakes them on a mismatch.
+    split: u32,
     forcefield: (Vec<u8>, u32),
 }
 impl PreparedTextures {
@@ -617,6 +626,7 @@ impl PreparedTextures {
     ) -> Self {
         let layer_bytes = (size * size * 4) as usize;
         Self {
+            split,
             sprites: (0..layers.div_ceil(split).max(1))
                 .map(|array| {
                     let first = array * split;
@@ -727,6 +737,10 @@ struct Opened {
 }
 /// Logs the adapter and records it for telemetry and crash reports.
 fn describe_adapter(adapter: &wgpu::Adapter) {
+    GPU_LAYERS.store(
+        adapter.limits().max_texture_array_layers,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let info = adapter.get_info();
     log::info!(
         "Horizon renderer: {} ({:?}, {:?})",
@@ -943,14 +957,6 @@ impl Renderer {
         previous: Option<&Self>,
         api: GraphicsApi,
     ) -> Result<Self> {
-        let split = sprite_split();
-        if layers > split * SPRITE_ARRAYS {
-            return Err(format!(
-                "{layers} block textures; Horizon draws at most {}",
-                split * SPRITE_ARRAYS
-            )
-            .into());
-        }
         let Opened {
             instance,
             surface,
@@ -978,6 +984,15 @@ impl Renderer {
             }
             None => open_device(&window, offscreen, api, layers).await?,
         };
+        // After the device: its texture array limit is the split.
+        let split = sprite_split();
+        if layers > split * SPRITE_ARRAYS {
+            return Err(format!(
+                "{layers} block textures; Horizon draws at most {}",
+                split * SPRITE_ARRAYS
+            )
+            .into());
+        }
         let info = adapter.get_info();
         crate::graphics::suggest_reduced_far_detail(crate::graphics::lod_capped(&info));
         let size = window.inner_size();
@@ -1308,7 +1323,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let prepared = prepared.unwrap_or_else(|| {
+        let prepared = prepared.filter(|p| p.split == split).unwrap_or_else(|| {
             PreparedTextures::new(sprite_pixels, sprite_size, layers, sprite_mips, forcefield)
         });
         let mut mip_levels = 1;
