@@ -271,7 +271,9 @@ impl Default for Graphics {
             pacing: Pacing::Efficient,
             workers: 0,
             overlay: Overlay::Off,
-            resolution_scale: 100,
+            // A phone's GPU is fill-bound at its screen's resolution (a Mali-G51 at 2340x1080: 27 fps with
+            // 14 ms of CPU a frame); the HUD stays at the screen's own resolution.
+            resolution_scale: if cfg!(target_os = "android") { 50 } else { 100 },
             fxaa: false,
             battery: false,
             api: GraphicsApi::Auto,
@@ -381,10 +383,15 @@ impl Graphics {
         // thread by default) each need one, and a pool that fills every core
         // starves them: the frame rate collapses to single digits while the
         // workers saturate the CPU and its memory bandwidth.
-        let auto = std::thread::available_parallelism()
-            .map_or(2, |n| n.get())
-            .saturating_sub(2)
-            .max(1);
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        // A phone's cores are half slow ones (big.LITTLE): workers on all of them still crowd the fast half
+        // the render and server threads need.
+        let auto = if cfg!(target_os = "android") {
+            cores / 2
+        } else {
+            cores.saturating_sub(2)
+        }
+        .max(1);
         if self.battery { auto.div_ceil(2) } else { auto }
     }
     /// The frame cap battery mode adds: 60 in a world, 30 in menus without a
