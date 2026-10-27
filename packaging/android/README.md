@@ -6,9 +6,9 @@ The game itself, as a NativeActivity: no Java, no Gradle.
   `game.rs`, `game/`) as `libhorizon_android.so`. Its `[lib] path` is the bin's own `main.rs`, because rustc
   emits no library from a bin target. It is its own workspace (the root one excludes it), so host builds never
   compile the game twice; its `Cargo.lock` started as a copy of the root one, keep the two in step.
-- `crates/horizon-client/src/android.rs` is `android_main`: `HOME` becomes the app's private data folder (logs,
-  settings: `files/.local/share/horizon`), the working directory its external files folder
-  (`Android/data/dev.horizon.game/files`: saves, `resources/`, imported archives), then `main` runs as anywhere else.
+- `crates/horizon-client/src/android.rs` is `android_main`: the working directory and `HOME` both become the app's
+  external files folder (`Android/data/dev.horizon.game/files`: saves, `resources/`, imported archives, and
+  `.local/share/horizon` for logs and settings), then `main` runs as anywhere else.
 - `AndroidManifest.xml`: `dev.horizon.game`, Android 8 (API 26) or later, landscape, Vulkan.
 
 `.github/workflows/android.yml` builds, packs (aapt2), aligns, signs and uploads `Horizon.apk`. By hand, with an NDK:
@@ -25,6 +25,11 @@ cargo build --release --manifest-path crates/horizon-android/Cargo.toml --target
 The .apk carries no Mojang assets. As on iOS, a game with none waits on the import screen and asks for the ZIP
 from `horizon-client --pack-resources` over Wi-Fi (see [../ios/README.md](../ios/README.md)), or take the cable:
 `adb push Horizon-26.3.zip /sdcard/Android/data/dev.horizon.game/files/` and relaunch.
+
+## Reading what happened
+
+Horizon's own log lines and panics go to logcat: `adb logcat -s RustStdoutStderr`. The whole log is
+`adb pull /sdcard/Android/data/dev.horizon.game/files/.local/share/horizon/logs/latest.log`.
 
 ## Not done yet
 
