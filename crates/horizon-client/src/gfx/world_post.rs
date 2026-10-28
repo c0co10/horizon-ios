@@ -24,10 +24,13 @@ pub struct Post {
 
 impl Post {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon post"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../world_post.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon post"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../world_post.wgsl").into()),
+            },
+        );
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Horizon post bindings"),
             entries: &[

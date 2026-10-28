@@ -259,10 +259,13 @@ struct Case { animation: vec4<f32>, bases: vec4<u32>, time: vec4<f32>, uv: vec2<
     results[id.x] = vec4(bitcast<vec2<u32>>(uv), vec2<u32>(texel));
 }"#
         );
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Weather parity"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Weather parity"),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            },
+        );
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Weather parity"),
             layout: None,

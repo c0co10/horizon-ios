@@ -289,10 +289,13 @@ impl Flat {
                 storage(4, compute, false),
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flatten section draws"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("flatten.wgsl").into()),
-        });
+        let module = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Flatten section draws"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("flatten.wgsl").into()),
+            },
+        );
         let compute_pipeline = |layout: &wgpu::BindGroupLayout, entry| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Flatten section draws"),
@@ -922,10 +925,13 @@ mod tests {
             storage(&sorted[1], none),
             storage(&[0; 4], none),
         ];
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("flatten.wgsl").into()),
-        });
+        let module = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(include_str!("flatten.wgsl").into()),
+            },
+        );
         let pipeline = |entry| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: None,

@@ -1074,10 +1074,13 @@ impl HudRenderer {
         format: wgpu::TextureFormat,
         view: &wgpu::TextureView,
     ) -> Result<Self> {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon HUD"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("hud.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon HUD"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("hud.wgsl").into()),
+            },
+        );
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("HUD"),

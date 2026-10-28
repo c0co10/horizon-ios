@@ -240,10 +240,13 @@ impl Cull {
                 entry(5, both, uniform),
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Section culling"),
-            source: wgpu::ShaderSource::Wgsl(source(depth_test).into()),
-        });
+        let module = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Section culling"),
+                source: wgpu::ShaderSource::Wgsl(source(depth_test).into()),
+            },
+        );
         let depth_layout = (depth_test == DepthTest::InShader).then(|| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Section culling depth"),

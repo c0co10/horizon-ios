@@ -573,6 +573,24 @@ pub struct Renderer {
     pub animated_textures: bool,
     present_modes: Vec<wgpu::PresentMode>,
 }
+/// `Device::create_shader_module` on a thread with a deep stack. naga's WGSL parser recurses per nested
+/// expression, and on an iPhone, whose main thread has 1 MB under `Renderer::new`'s own frame, it overflowed
+/// (a SIGSEGV in `naga::front::wgsl::parse` from `loading_renderer`). Not for a module made under an error
+/// scope: scopes are the calling thread's.
+pub(crate) fn shader_module(
+    device: &wgpu::Device,
+    desc: wgpu::ShaderModuleDescriptor<'_>,
+) -> wgpu::ShaderModule {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("horizon-shader".into())
+            .stack_size(16 << 20)
+            .spawn_scoped(scope, || device.create_shader_module(desc))
+            .expect("a thread to parse a shader on")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
 /// Every layer's mip levels, layer major (`first` is the first layer's
 /// index into `settings`), made by `MipmapGenerator`.
 /// Block sprite layers per texture array: the smallest
@@ -1158,10 +1176,13 @@ impl Renderer {
             startup_step(format_args!("creating the pipelines"));
         }
         let gpu_timer = timing::GpuTimer::new(&device, &queue);
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon terrain"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("terrain.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon terrain"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("terrain.wgsl").into()),
+            },
+        );
         let entry = |binding, visibility, ty| wgpu::BindGroupLayoutEntry {
             binding,
             visibility,
@@ -1610,10 +1631,13 @@ impl Renderer {
         let atlas_view = atlas.create_view(&Default::default());
         let mut hud = HudRenderer::new(&device, config.format.remove_srgb_suffix(), &atlas_view)?;
         hud.atlas_texture = Some(atlas.clone());
-        let entity_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon entities"),
-            source: wgpu::ShaderSource::Wgsl(entity_shader().into()),
-        });
+        let entity_shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon entities"),
+                source: wgpu::ShaderSource::Wgsl(entity_shader().into()),
+            },
+        );
         let entity_bindings = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Entity bindings"),
             entries: &[
@@ -1933,10 +1957,13 @@ impl Renderer {
                 count: None,
             }],
         });
-        let outline_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Entity outline"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("gfx/outline.wgsl").into()),
-        });
+        let outline_shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Entity outline"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("gfx/outline.wgsl").into()),
+            },
+        );
         let outline_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Entity outline"),
             layout: Some(
@@ -2199,10 +2226,13 @@ impl Renderer {
             bind_group_layouts: &[Some(&border_bindings)],
             ..Default::default()
         });
-        let border_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon world border"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("border.wgsl").into()),
-        });
+        let border_shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon world border"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("border.wgsl").into()),
+            },
+        );
         let border_attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2];
         // RenderPipelines.WORLD_BORDER: BlendFunction.OVERLAY, no culling,
         // depth writes with a polygon offset of 3 towards the camera.
@@ -2259,10 +2289,13 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        let screen_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon screen effects"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("screen.wgsl").into()),
-        });
+        let screen_shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon screen effects"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("screen.wgsl").into()),
+            },
+        );
         let screen_attributes =
             wgpu::vertex_attr_array![0=>Float32x2,1=>Float32x2,2=>Float32x4,3=>Float32x4];
         let screen_vertex = [Some(wgpu::VertexBufferLayout {

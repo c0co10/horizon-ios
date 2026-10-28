@@ -37,10 +37,13 @@ pub struct Hdr {
 
 impl Hdr {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Horizon HDR"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../hdr.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Horizon HDR"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../hdr.wgsl").into()),
+            },
+        );
         let texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,

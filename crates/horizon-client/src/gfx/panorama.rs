@@ -158,10 +158,13 @@ impl Panorama {
                 },
             ],
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Title panorama shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("panorama.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Title panorama shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("panorama.wgsl").into()),
+            },
+        );
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Title panorama layout"),
             bind_group_layouts: &[Some(&layout)],

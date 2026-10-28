@@ -37,10 +37,13 @@ impl MenuBlur {
     /// `format` is the swapchain's; the blur works in its non-sRGB view.
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let format = format.remove_srgb_suffix();
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Menu blur"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("menu_blur.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Menu blur"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("menu_blur.wgsl").into()),
+            },
+        );
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Menu blur bindings"),
             entries: &[

@@ -91,10 +91,13 @@ impl Stars {
                 resource: uniform.as_entire_binding(),
             }],
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Stars shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("stars.wgsl").into()),
-        });
+        let shader = crate::gfx::shader_module(
+            &device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some("Stars shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("stars.wgsl").into()),
+            },
+        );
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Stars layout"),
             bind_group_layouts: &[Some(&layout)],

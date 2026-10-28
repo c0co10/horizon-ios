@@ -158,10 +158,13 @@ impl PassTiming {
         (target, format): super::timing::Target,
     ) {
         if self.marker.as_ref().is_none_or(|(f, _)| *f != format) {
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Shader pack timing mark"),
-                source: wgpu::ShaderSource::Wgsl(super::timing::MARKER.into()),
-            });
+            let module = crate::gfx::shader_module(
+                &device,
+                wgpu::ShaderModuleDescriptor {
+                    label: Some("Shader pack timing mark"),
+                    source: wgpu::ShaderSource::Wgsl(super::timing::MARKER.into()),
+                },
+            );
             let pipeline = super::timing::end_pipeline(device, &module, format);
             self.marker = Some((format, pipeline));
         }
