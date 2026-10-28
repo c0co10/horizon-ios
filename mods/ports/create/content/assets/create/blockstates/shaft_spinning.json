@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=x": {
+      "model": "create:block/shaft_spinning",
+      "x": 90,
+      "y": 90
+    },
+    "axis=y": {
+      "model": "create:block/shaft_spinning"
+    },
+    "axis=z": {
+      "model": "create:block/shaft_spinning",
+      "x": 90
+    }
+  }
+}

@@ -51,7 +51,7 @@ between this bundle and a playable one:
 | Gap | Why it is structural | Decided |
 |---|---|---|
 | Assets | `horizon-prepare` runs a JDK against the player's own Minecraft install to produce `.local/horizon-client/26.3`; there is no Java on iOS | Prepare off-device, download to the phone |
-| Mods | `horizon-mods` runs them through wasmtime's cranelift JIT, and Apple forbids generating executable code at runtime (`docs/mods.md`) -- note the runner says the `mods` *feature compiles*, which is about the compiler and not about running | Disabled on iOS |
+| Mods | `horizon-mods` runs mods through wasmtime's cranelift JIT on desktops, and Apple forbids generating executable code at runtime | Run on the phone through Pulley, wasmtime's interpreter: cranelift compiles each mod to portable bytecode, never to machine code, so no page is ever executable (`docs/mods.md`, "Choosing the runtime"); the phone build turns on `mods`. Content mods (blocks, items, recipes) need no runtime at all |
 | Input | the client's winit loop is desktop-shaped: cursor-warp mouse look, no touch | A touch layer, in no crate yet |
 | Sound, controllers | `hidapi`/`gilrs` need libudev or IOKit, which is what `--no-default-features` drops and why the phone build asks for that flag; `cpal` (the `audio` feature) has a CoreAudio backend for iOS too, through RemoteIO | `--features audio` on the phone, with the launcher setting up the audio session; `GCController` for pads |
 
@@ -65,7 +65,7 @@ answers you can read on the screen, all of them computed on the phone rather tha
 is the shell above. `Horizon-game-unsigned.ipa` is `horizon-client` itself:
 
 ```sh
-cargo build --release --locked --target aarch64-apple-ios -p horizon-client --no-default-features --features audio
+cargo build --release --locked --target aarch64-apple-ios -p horizon-client --no-default-features --features audio,mods
 rm -rf game-payload && mkdir -p game-payload/Payload/Horizon.app
 cp target/aarch64-apple-ios/release/horizon-client game-payload/Payload/Horizon.app/Horizon
 cp GameInfo.plist game-payload/Payload/Horizon.app/Info.plist
@@ -79,7 +79,8 @@ bundle id is `dev.horizon.game`, so the two install side by side. `GameInfo.plis
 
 What that bundle cannot do yet, in the order it will be found: it has **no assets** (CI has no Minecraft jar to run
 `horizon-prepare` against, and this repository must not ship one; `UIFileSharingEnabled` in the plist is the
-deliberate door for the player to put the prepared folder where the game looks), and **no touch input** -- the first
+deliberate door for the player to put the prepared folder where the game looks; mods go the same way, as `.hmod`
+files in `Documents/horizon-mods/`), and **no touch input** -- the first
 frame may be the whole show until something turns a tap into a key. The game starts in `$HOME/Documents`, which is
 why `saves/`, `options.txt` and `.horizon-cache` are where a player can reach them; see `crates/horizon-client/src/main.rs`
 `into_app_sandbox`.
@@ -101,7 +102,7 @@ cd packaging/ios && xcodegen generate && open HorizonIOS.xcodeproj
 ```
 
 Pick **Horizon game**, choose your device, set a signing team on the target, and press Run. The target's first
-build phase runs `cargo build --release --target aarch64-apple-ios -p horizon-client --no-default-features --features audio`;
+build phase runs `cargo build --release --target aarch64-apple-ios -p horizon-client --no-default-features --features audio,mods`;
 Xcode then links a placeholder `GameShell/main.m` so the bundle has an executable, and a phase after it
 overwrites that file with Cargo's binary -- which is what the signature then covers. rustc cannot emit a library
 from a bin target and `Game` is bin-only code, so this is the only shape that gets the game into a signed bundle

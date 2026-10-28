@@ -69,6 +69,10 @@ mod run {
     /// Blocks queued for levels that don't tick (another dimension, in-frame)
     /// are kept up to this many; the oldest go first.
     const MAX_QUEUED_WRITES: usize = 1 << 16;
+    /// A queued write's state for `world.destroy-blocks`: break the block
+    /// with its drops. No block state is spelled empty, so `set-blocks`
+    /// (whose states are checked) never queues it.
+    const DESTROY: &str = "";
 
     /// Capability `world`'s view during a call: the levels' chunks, moved out
     /// of the game for the call and back after it (no copy).
@@ -381,6 +385,21 @@ mod run {
             self.mods.block_writes = later;
             let registry = self.pack.assets.registry;
             for (_, b) in now {
+                if b.state == DESTROY {
+                    let pos = [b.x, b.y, b.z];
+                    if !self.world.chunks.contains_key(&(b.x >> 4, b.z >> 4)) {
+                        continue;
+                    }
+                    if let Err(e) = self.destroy_block_dropping(pos) {
+                        log::debug!(
+                            "Horizon: a server mod's break at {} {} {}: {e:?}",
+                            b.x,
+                            b.y,
+                            b.z
+                        );
+                    }
+                    continue;
+                }
                 let state = match crate::game::render_control::parse_state(registry, &b.state) {
                     Ok(state) => state,
                     Err(e) => {
@@ -566,6 +585,33 @@ mod run {
                         queued.drain(..over);
                         log::warn!(
                             "Horizon: mod {name} set more blocks than wait for their level: {over} dropped"
+                        );
+                    }
+                }
+                Output::DestroyBlocks {
+                    name,
+                    dimension,
+                    positions,
+                } => {
+                    // In the same queue as the sets, so a mod's breaks and
+                    // sets happen in the order it asked for them.
+                    let queued = &mut self.mods.block_writes;
+                    queued.extend(positions.into_iter().map(|[x, y, z]| {
+                        (
+                            dimension.clone(),
+                            horizon_mods::BlockChange {
+                                x,
+                                y,
+                                z,
+                                state: DESTROY.to_string(),
+                            },
+                        )
+                    }));
+                    if queued.len() > MAX_QUEUED_WRITES {
+                        let over = queued.len() - MAX_QUEUED_WRITES;
+                        queued.drain(..over);
+                        log::warn!(
+                            "Horizon: mod {name} broke more blocks than wait for their level: {over} dropped"
                         );
                     }
                 }

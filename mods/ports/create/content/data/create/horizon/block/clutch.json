@@ -1,0 +1,8 @@
+{
+  "template": "minecraft:redstone_lamp",
+  "properties": {
+    "hardness": 2.0,
+    "light": 0,
+    "sounds": "minecraft:oak_planks"
+  }
+}

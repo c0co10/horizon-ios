@@ -1,0 +1,24 @@
+{
+  "values": [
+    "create:andesite_casing",
+    "create:clutch",
+    "create:cogwheel",
+    "create:cogwheel_spinning",
+    "create:encased_shaft",
+    "create:gearbox",
+    "create:gearshift",
+    "create:hand_crank",
+    "create:large_cogwheel",
+    "create:large_cogwheel_spinning",
+    "create:mechanical_piston",
+    "create:mechanical_piston_head",
+    "create:piston_extension_pole",
+    "create:sail_frame",
+    "create:speedometer",
+    "create:stressometer",
+    "create:water_wheel",
+    "create:water_wheel_spinning",
+    "create:white_sail",
+    "create:windmill_bearing"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "A": "create:andesite_alloy",
+    "C": "create:andesite_casing"
+  },
+  "pattern": [
+    "III",
+    "ACA"
+  ],
+  "result": {
+    "id": "create:mechanical_saw",
+    "count": 1
+  }
+}

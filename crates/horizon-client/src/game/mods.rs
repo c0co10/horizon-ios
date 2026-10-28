@@ -704,7 +704,8 @@ impl Game<'_> {
                 server @ (Output::Tell { .. }
                 | Output::Broadcast { .. }
                 | Output::Reply { .. }
-                | Output::SetBlocks { .. }) => {
+                | Output::SetBlocks { .. }
+                | Output::DestroyBlocks { .. }) => {
                     self.route_server_output(host.as_deref_mut(), server);
                     continue;
                 }

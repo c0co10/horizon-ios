@@ -672,6 +672,14 @@ interface %world {
     /// in order after this call returns, before that dimension's next tick;
     /// one in a chunk not loaded then is skipped. At most 4096 per call.
     set-blocks: func(dimension: string, blocks: list<block-change>) -> result<_, string>;
+    /// Breaks blocks as a player's hand would, without the hand: the
+    /// block's loot dropped as items where it stood (its container's
+    /// contents too), the break's particles and sound, then air, neighbours
+    /// and light updated. Air and fluids are left. Made in order after this
+    /// call returns, with the `set-blocks` of this tick in the order they
+    /// were asked for; one in a chunk not loaded then is skipped. At most
+    /// 256 per call. (Machines that dig: a drill, a saw.)
+    destroy-blocks: func(dimension: string, positions: list<tuple<s32, s32, s32>>) -> result<_, string>;
 }
 
 /// What the server calls in a server mod (manifest `api = "0.3"`,

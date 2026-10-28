@@ -283,7 +283,17 @@ fn a_misbehaving_mod_is_stopped_alone() {
         let mut mods = Mods::load(&paths, |_| true, |_| false);
         let started = Instant::now();
         assert!(mods.command(command));
-        assert!(started.elapsed().as_secs() < 5, "/{command} was cut short");
+        // Pulley in an unoptimised build runs the same fuel many times slower.
+        let limit =
+            if cfg!(debug_assertions) && std::env::var_os("HORIZON_MODS_INTERPRET").is_some() {
+                60
+            } else {
+                5
+            };
+        assert!(
+            started.elapsed().as_secs() < limit,
+            "/{command} was cut short"
+        );
         let stopped = Output::Stopped {
             name: "Test Guest".into(),
             reason: reason.into(),

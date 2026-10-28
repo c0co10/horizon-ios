@@ -876,3 +876,82 @@ fn a_replacing_mod_tag_reaches_the_root() {
     );
     let _ = fs::remove_dir_all(&scratch);
 }
+
+/// The Create port's content half (`mods/ports/create/content`) over the
+/// prepared resources: every block and item it declares registers, has a
+/// model with faces and textures that load, and its recipes and tags load.
+#[test]
+fn create_port_content_loads() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir = manifest.join("../../mods/ports/create/content");
+    let package = horizon_mods::Package::read(&dir).unwrap();
+    let m = ContentMod {
+        id: "create".into(),
+        content: Content::read(&dir, &package.manifest).unwrap(),
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-create-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let root = resource_root(&base, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let assets = Assets::load(&root).unwrap();
+    let registry = assets.registry;
+    let blocks: Vec<String> = fs::read_dir(dir.join("data/create/horizon/block"))
+        .unwrap()
+        .map(|e| {
+            let name = e.unwrap().file_name().into_string().unwrap();
+            format!("create:{}", name.trim_end_matches(".json"))
+        })
+        .collect();
+    assert!(blocks.len() >= 25, "{blocks:?}");
+    let facts = BlockFacts::load(&root, registry).unwrap();
+    let mut sprites = crate::sprites::Sprites::default();
+    let prepared = crate::models::prepare(&root, registry, &mut sprites).unwrap();
+    let n = registry.len() as u32;
+    let mut seen = std::collections::BTreeSet::new();
+    for id in 0..n {
+        let state = BlockStateId(id);
+        let s = registry.state(state).unwrap();
+        if !s.name.starts_with("create:") {
+            continue;
+        }
+        seen.insert(s.name.to_string());
+        let models = prepared
+            .catalog
+            .collect(state, horizon_core::position::BlockPos::default())
+            .unwrap_or_else(|e| panic!("{}: {e}", s.name));
+        assert!(
+            models.iter().any(|(_, m)| !m.faces.is_empty()),
+            "{} {:?} has no faces",
+            s.name,
+            s.properties
+        );
+        assert_eq!(&*facts.get(state).name, &*s.name);
+    }
+    for b in &blocks {
+        assert!(seen.contains(b), "{b} not registered");
+    }
+    for texture in ["create:block/shaft", "create:block/shaft_spinning", "create:block/cogwheel"] {
+        assert!(
+            sprites.layers.keys().any(|k| k.contains(texture)),
+            "{texture} not in {:?}",
+            sprites.layers.keys().filter(|k| k.contains("create")).collect::<Vec<_>>()
+        );
+    }
+    assert!(!sprites.animations.is_empty());
+    let items = Items::load(&root, registry, &facts).unwrap();
+    for item in ["create:shaft", "create:cogwheel", "create:andesite_alloy", "create:mechanical_drill"] {
+        assert!(items.items.contains_key(item), "{item}");
+    }
+    assert!(!items.items.contains_key("create:shaft_spinning"));
+    let recipes = crate::crafting::Recipes::load(&root, &items).unwrap();
+    let _ = recipes;
+    crate::item_render::ItemRenderer::load(&root).unwrap();
+    crate::collisions::load(&root, registry).unwrap();
+    crate::models::load_visibility(&root, registry).unwrap();
+    crate::light::LightTables::load(&root, registry, &facts).unwrap();
+    assert!(items.block_tags["minecraft:mineable/axe"].contains("create:gearbox"));
+    assert!(items.block_tags["minecraft:mineable/pickaxe"].contains("create:mechanical_drill"));
+    fs::remove_dir_all(&scratch).unwrap();
+}

@@ -33,6 +33,11 @@ pub struct TestGame {
     /// changed; every other block, and the other dimensions, are air. Every
     /// biome is the dimension's plainest: plains, nether wastes, the end.
     pub world: std::collections::BTreeMap<(i32, i32, i32), String>,
+    /// What the mods said during the step's ticks, already applied to
+    /// [`TestGame::world`] tick by tick, as the game applies them.
+    held: Vec<Output>,
+    /// The positions the mod broke with `world.destroy-blocks`, in order.
+    pub destroyed: Vec<(i32, i32, i32)>,
 }
 
 /// The world a script's mod reads: [`TestGame::world`], copied for a step.
@@ -120,6 +125,8 @@ impl TestGame {
             names: Vec::new(),
             tick: 0,
             world: Default::default(),
+            held: Vec::new(),
+            destroyed: Vec::new(),
         };
         copy_mod(hmod, &copy)?;
         game.start()?;
@@ -168,6 +175,48 @@ impl TestGame {
             self.snapshot();
             self.mods.tick(self.tick);
             self.mods.server_tick(self.tick);
+            // The game makes a tick's block changes before the next tick, so
+            // a mod sees its own changes then; so does a script's world.
+            if self.mods.take_world().is_some() {
+                let out = self.mods.drain();
+                self.apply_world(&out);
+                self.held.extend(out);
+                self.mods
+                    .lend_world(Box::new(ScriptWorld(self.world.clone())));
+            }
+        }
+    }
+    /// Makes the Overworld block changes in `out` to [`TestGame::world`].
+    fn apply_world(&mut self, out: &[Output]) {
+        for o in out {
+            match o {
+                Output::SetBlocks {
+                    dimension, blocks, ..
+                } if dimension == "minecraft:overworld" => {
+                    for b in blocks {
+                        self.world.insert((b.x, b.y, b.z), b.state.clone());
+                    }
+                }
+                Output::DestroyBlocks {
+                    dimension,
+                    positions,
+                    ..
+                } if dimension == "minecraft:overworld" => {
+                    for &[x, y, z] in positions {
+                        let here = self.world.get(&(x, y, z)).map(String::as_str);
+                        let fluid = here.is_none_or(|s| {
+                            s == "minecraft:air"
+                                || s.starts_with("minecraft:water")
+                                || s.starts_with("minecraft:lava")
+                        });
+                        if !fluid {
+                            self.world.insert((x, y, z), "minecraft:air".into());
+                            self.destroyed.push((x, y, z));
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
     /// `n` frames, 1/60 s apart.
@@ -268,7 +317,9 @@ impl TestGame {
     }
     /// What the mod showed since the last call.
     pub fn drain(&mut self) -> Vec<Output> {
-        self.mods.drain()
+        let mut out = std::mem::take(&mut self.held);
+        out.extend(self.mods.drain());
+        out
     }
 }
 
@@ -353,6 +404,15 @@ pub struct BlockSet {
     state: String,
 }
 
+/// A position, `{ x = 2, y = 64, z = 0 }`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct At {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct ClockSet {
@@ -420,6 +480,9 @@ pub struct Expect {
     /// Blocks of the Overworld after the step, the mod's changes made
     /// (capability `world`).
     blocks: Option<Vec<BlockSet>>,
+    /// The Overworld blocks the mod broke with their drops
+    /// (`world.destroy-blocks`) during the step, in order.
+    destroyed: Option<Vec<At>>,
     /// The mod is turned off during this step, for a reason holding this text.
     /// Without it, a mod that stops fails the test.
     stopped: Option<String>,
@@ -517,6 +580,7 @@ impl Step {
     }
 
     fn run(&self, game: &mut TestGame) -> Result<(), String> {
+        let destroyed_before = game.destroyed.len();
         if self.reload {
             game.reload()?;
         }
@@ -594,18 +658,10 @@ impl Step {
             return Err(format!("{name} is not on the server"));
         }
         game.mods.take_world();
-        let out = game.drain();
-        for o in &out {
-            if let Output::SetBlocks {
-                dimension, blocks, ..
-            } = o
-                && dimension == "minecraft:overworld"
-            {
-                for b in blocks {
-                    game.world.insert((b.x, b.y, b.z), b.state.clone());
-                }
-            }
-        }
+        let fresh = game.mods.drain();
+        game.apply_world(&fresh);
+        let mut out = std::mem::take(&mut game.held);
+        out.extend(fresh);
         let stopped = out.iter().find_map(|o| match o {
             Output::Stopped { reason, .. } => Some(reason.as_str()),
             _ => None,
@@ -700,6 +756,14 @@ impl Step {
                     ));
                 }
             }
+        }
+        if let Some(want) = &e.destroyed {
+            let want: Vec<(i32, i32, i32)> = want.iter().map(|a| (a.x, a.y, a.z)).collect();
+            same(
+                "destroyed",
+                &want,
+                &game.destroyed[destroyed_before..].to_vec(),
+            )?;
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());

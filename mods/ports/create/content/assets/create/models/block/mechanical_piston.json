@@ -1,0 +1,50 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "side": "create:block/andesite_casing",
+    "top": "create:block/mechanical_piston_top",
+    "bottom": "create:block/andesite_casing_top",
+    "hole": "create:block/gearbox_side",
+    "particle": "create:block/andesite_casing"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "north": {
+          "texture": "#hole",
+          "cullface": "north"
+        },
+        "south": {
+          "texture": "#hole",
+          "cullface": "south"
+        },
+        "east": {
+          "texture": "#hole",
+          "cullface": "east"
+        },
+        "west": {
+          "texture": "#hole",
+          "cullface": "west"
+        },
+        "up": {
+          "texture": "#top",
+          "cullface": "up"
+        },
+        "down": {
+          "texture": "#bottom",
+          "cullface": "down"
+        }
+      }
+    }
+  ]
+}

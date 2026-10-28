@@ -131,7 +131,7 @@ There is no file, socket, process or raw-input interface, on purpose.
 |---|---|---|---|---|---|
 | **wasmtime + component model** | yes: memory, fuel, no imports but ours | yes | WIT → Rust on both sides | 85 ns per empty hook call; 50 ms to compile a 64 KB mod on load | **chosen** |
 | wasmtime, core modules with a hand ABI | yes | yes | no: pointers and lengths by hand | a few ns less per call | not worth the fragile ABI |
-| wasmi (interpreter) | yes | yes | no components | no compile time, execution ~10-50x slower than cranelift code | kept in mind for a platform without JIT |
+| wasmi (interpreter) | yes | yes | no components | no compile time, execution ~10-50x slower than cranelift code | not needed: wasmtime's own interpreter, Pulley, runs the same components where there is no JIT (iOS) |
 | Lua (mlua) or another script | partial (strip the stdlib, hope) | yes | no | fast to write | not Rust; weak sandbox |
 | native `cdylib` plugins | none | no: per OS and arch, unstable Rust ABI | yes | none | unsafe for players |
 | an embedded JVM | none per mod | yes | Java | 100+ MB, seconds of startup | see the research |
@@ -139,11 +139,20 @@ There is no file, socket, process or raw-input interface, on purpose.
 wasmtime 48 is a long-term-support line (security fixes until August 2028)
 and needs Rust 1.95. It reads WebAssembly with the same wasm-tools release
 (0.254) as the `wit-component` that packs mods and the SDK's `wit-bindgen`, so
-the build carries one copy of them. Only its `runtime`, `cranelift`,
+the build carries one copy of them. Only its `runtime`, `cranelift`, `pulley`,
 `component-model` and `std` features are on: no WASI, no async, no GC
 proposal, no profiling. Its cranelift backend generates native code for x86-64
 and ARM64 on Windows, macOS and Linux, which is why one `.hmod` serves them
 all.
+
+On iOS an app may not make memory executable (no JIT without an entitlement
+Apple gives no App Store app), so there cranelift compiles each mod to Pulley,
+wasmtime's portable bytecode, and wasmtime's interpreter runs it: the same
+`.hmod`, the same sandbox, fuel and memory cap, bounds checked in the bytecode
+rather than by guard pages, each memory reserved at the 64 MiB cap. It is
+several times slower than native code, which the hook budgets leave room for.
+`HORIZON_MODS_INTERPRET=1` picks the interpreter on any OS, so the tests and
+`cargo horizon-mod test` can check a mod the way an iPhone runs it.
 
 The game links it only with its `mods` feature: every release build turns it
 on (`release.yml`), and a build from source needs
@@ -312,6 +321,7 @@ checked:
 | `panel = ["..."]`, `corner = "top-left"` | its HUD panel's lines (`[]`: no panel) and corner |
 | `told = ["Alex: Welcome!"]`, `broadcast = ["..."]` | server mods: every `players.tell` (as `name: text`) and `players.broadcast`, in order |
 | `blocks = [{ x = 2, y = 64, z = 0, state = "minecraft:glowstone" }]` | server mods with `world`: those blocks of the Overworld after the step, the mod's `set-blocks` made (the script checks a state's shape; the game checks its name) |
+| `destroyed = [{ x = 2, y = 64, z = 0 }]` | server mods with `world`: the blocks the mod broke with `destroy-blocks` during the step, in order |
 | `stopped = "panic"` | the mod was turned off, for a reason holding this text; without it, a mod that traps, panics or overruns fails the test |
 
 Unknown keys are errors, so a typo never passes silently. The same runner is
@@ -480,7 +490,7 @@ its component targets the WIT world `horizon-server-mod` instead of
 | `log` | always | as for client mods |
 | `storage` | `storage` | as for client mods, in the server's `horizon-mods/` |
 | `players` | `players` | `online()`: id, name, position, dimension, game mode, health of each player on; `tell(id, text)`, `broadcast(text)`: system messages after the mod's name, 8 per call |
-| `world` | `world` | `get-block(dimension, x, y, z)`: the state in a loaded chunk, `minecraft:oak_log[axis=y]`; `get-biome(dimension, x, y, z)`: `minecraft:plains`, ...; `set-blocks(dimension, changes)`: up to 4096 per call, checked at once, made as `/setblock` makes them (neighbours, light, block entities, every player told) after the call, before that dimension's next tick |
+| `world` | `world` | `get-block(dimension, x, y, z)`: the state in a loaded chunk, `minecraft:oak_log[axis=y]`; `get-biome(dimension, x, y, z)`: `minecraft:plains`, ...; `set-blocks(dimension, changes)`: up to 4096 per call, checked at once, made as `/setblock` makes them (neighbours, light, block entities, every player told) after the call, before that dimension's next tick; `destroy-blocks(dimension, positions)`: up to 256 per call, each broken as a player's tool breaks it (its loot table dropped, particles and sound), air and unloaded positions skipped, at the same time |
 
 | Hook (export `server-events`) | When |
 |---|---|

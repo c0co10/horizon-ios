@@ -102,6 +102,18 @@ pub use recipes_bindings::horizon::mods::recipes::{
 };
 use recipes_bindings::{RecipesHost, horizon::mods::browser, horizon::mods::recipes};
 
+/// The interpreter's target: wasmtime's Pulley bytecode, 64-bit, the host's
+/// byte order (every target Horizon ships is little-endian).
+const PULLEY_TARGET: &str = "pulley64";
+
+/// Whether mods run on wasmtime's Pulley interpreter instead of native
+/// code: always on iOS, where an app may not make memory executable, and
+/// anywhere with `HORIZON_MODS_INTERPRET=1` (the tests run both ways).
+pub fn interpreted() -> bool {
+    cfg!(target_os = "ios")
+        || std::env::var_os("HORIZON_MODS_INTERPRET").is_some_and(|v| v != "0" && !v.is_empty())
+}
+
 /// A mod's linear memory cap.
 const MEMORY: usize = 64 << 20;
 /// Fuel (about one unit per WebAssembly instruction) per call: a bound on
@@ -110,6 +122,9 @@ const FUEL_INIT: u64 = 2_000_000_000;
 const FUEL_TICK: u64 = 50_000_000;
 const FUEL_FRAME: u64 = 10_000_000;
 const FUEL_EVENT: u64 = 100_000_000;
+/// Blocks a mod may break per `world.destroy-blocks` call: each one drops
+/// items, so far fewer than it may set.
+pub const DESTROYS_PER_CALL: usize = 256;
 /// Blocks a mod may set per `world.set-blocks` call.
 pub const BLOCKS_PER_CALL: usize = 4096;
 /// Chat lines a mod may show per call, HUD lines and their length.
@@ -230,6 +245,13 @@ pub enum Output {
         name: String,
         dimension: String,
         blocks: Vec<BlockChange>,
+    },
+    /// `world.destroy-blocks`: positions in `dimension` to break with their
+    /// drops, in order, after the [`Output::SetBlocks`] before them.
+    DestroyBlocks {
+        name: String,
+        dimension: String,
+        positions: Vec<[i32; 3]>,
     },
     /// `ui.open-screen`: the mod's entry in `entries()`; what it shows is
     /// [`Mods::screen`].
@@ -532,6 +554,27 @@ impl Mods {
         if self.engine.is_none() {
             let mut config = Config::new();
             config.wasm_component_model(true).consume_fuel(true);
+            if interpreted() {
+                // Pulley: cranelift compiles to wasmtime's portable bytecode,
+                // which its interpreter runs from ordinary memory, so no page
+                // is ever made executable (iOS forbids it outside the JIT
+                // entitlement Apple gives no App Store app).
+                config
+                    .target(PULLEY_TARGET)
+                    .map_err(|e| format!("the mod interpreter: {e}"))?;
+                // A named target skips wasmtime's own refinement for the
+                // host, so say what an iPhone needs: bounds checked in the
+                // bytecode rather than caught as signals (an app's signal
+                // and Mach exception handlers are the crash reporter's), and
+                // each memory reserved at the cap the store already holds
+                // it to, not the default 4 GiB plus guard, since an app's
+                // address space is small without an entitlement.
+                config
+                    .signals_based_traps(false)
+                    .memory_guard_size(0)
+                    .memory_reservation(MEMORY as u64)
+                    .memory_reservation_for_growth(0);
+            }
             let engine = Engine::new(&config).map_err(|e| e.to_string())?;
             let mut linker = Linker::new(&engine);
             HorizonMod::add_to_linker::<State, HasSelf<State>>(&mut linker, |s| s)
@@ -1566,6 +1609,9 @@ impl mod_world::Host for State {
                 blocks.len()
             ));
         }
+        if blocks.iter().any(|b| b.state.trim().is_empty()) {
+            return Err("a block change with no state".into());
+        }
         if let Some(view) = self.world.lock().ok().as_ref().and_then(|v| v.as_ref()) {
             if !view.has_dimension(&dimension) {
                 return Err(format!("no dimension {dimension}"));
@@ -1579,6 +1625,31 @@ impl mod_world::Host for State {
                 name: self.name.clone(),
                 dimension,
                 blocks,
+            });
+        }
+        Ok(())
+    }
+    fn destroy_blocks(
+        &mut self,
+        dimension: String,
+        positions: Vec<(i32, i32, i32)>,
+    ) -> Result<(), String> {
+        if positions.len() > DESTROYS_PER_CALL {
+            return Err(format!(
+                "{} blocks: at most {DESTROYS_PER_CALL} per call",
+                positions.len()
+            ));
+        }
+        if let Some(view) = self.world.lock().ok().as_ref().and_then(|v| v.as_ref())
+            && !view.has_dimension(&dimension)
+        {
+            return Err(format!("no dimension {dimension}"));
+        }
+        if !positions.is_empty() {
+            self.out.push(Output::DestroyBlocks {
+                name: self.name.clone(),
+                dimension,
+                positions: positions.into_iter().map(|(x, y, z)| [x, y, z]).collect(),
             });
         }
         Ok(())
