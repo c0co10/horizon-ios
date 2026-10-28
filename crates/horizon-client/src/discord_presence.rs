@@ -16,9 +16,9 @@ use serde_json::{Value, json};
 
 use crate::command::args::GameMode;
 
-/// The "Horizon" application on Discord's developer portal (public: it names the game). Its
+/// This fork's application on Discord's developer portal (public: it names the game). Its
 /// Rich Presence assets: `horizon`, the logo.
-pub const DISCORD_APP_ID: &str = "1563857609738690560";
+pub const DISCORD_APP_ID: &str = "1564799693215498480";
 /// Whether the application has the game-mode images (`survival`, `creative`, `adventure`,
 /// `spectator`) beside the logo; it doesn't yet.
 const MODE_IMAGES: bool = false;
