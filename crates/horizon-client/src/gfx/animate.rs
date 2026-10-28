@@ -368,6 +368,10 @@ impl SpriteAnimator {
 /// the GLSL version of its core version, which has none (Mesa's
 /// `MESA_GL_VERSION_OVERRIDE`, older drivers).
 fn pipeline(device: &wgpu::Device) -> Option<wgpu::ComputePipeline> {
+    // The scopes go with the module to the deep stack (`gfx::shader_module`).
+    crate::gfx::deep_stack(|| pipeline_here(device))
+}
+fn pipeline_here(device: &wgpu::Device) -> Option<wgpu::ComputePipeline> {
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

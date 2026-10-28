@@ -597,7 +597,9 @@ pub(crate) fn compute_pipeline(
 ) -> wgpu::ComputePipeline {
     deep_stack(|| device.create_compute_pipeline(desc))
 }
-fn deep_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+/// `work` on a thread with a 16 MB stack, waited for: what [`shader_module`] does, for a block that keeps
+/// its error scopes (thread-local) around the modules it makes.
+pub(crate) fn deep_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("horizon-shader".into())
@@ -3459,8 +3461,9 @@ impl Renderer {
             sprites: self.terrain_sprites,
             format: self.config.format.remove_srgb_suffix(),
         };
-        let (pack, labels) =
-            native_pack::NativePack::new(&self.device, &terrain, report, &constants)?;
+        let (pack, labels) = deep_stack(|| {
+            native_pack::NativePack::new(&self.device, &terrain, report, &constants)
+        })?;
         self.native = pack.draws().then_some(pack);
         if self.native.is_some() {
             self.pack_generation = self.pack_generation.wrapping_add(1);
