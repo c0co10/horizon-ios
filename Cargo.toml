@@ -41,6 +41,7 @@ members = [
     "mods/official/zoom",
     "xtask",
     "mods/official/recipes",
+    "mods/ports/create/kinetics",
 ]
 resolver = "2"
 

@@ -106,6 +106,9 @@ What real mods need next, in the order modpacks and servers need it:
 
 ## Changelog
 
+- API 0.3, level 7: `world.destroy-blocks(dimension, positions)`, blocks broken with their drops (up to 256 per
+  call); test scripts' `expect.destroyed`. Mods run on iOS through wasmtime's Pulley interpreter
+  (`HORIZON_MODS_INTERPRET=1` elsewhere). First user: the Create port, `mods/ports/create`.
 - API 0.3: typed server commands: `registration.commands` lists each command's arguments (`argument-kind`: word,
   text, integer, number, boolean, player, block-pos), sent in players' command trees and parsed by the server;
   `command` gets their values. SDK `Registration::command_with`, `Argument`, `Args`.

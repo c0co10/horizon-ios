@@ -678,6 +678,7 @@ Capability `world`, server mods only (manifest `api = "0.3"`, experimental): the
 | `get-block` | `func(dimension: string, x: s32, y: s32, z: s32) -> option<string>` | The block state at a position in a dimension (`minecraft:overworld`, ...), as `minecraft:oak_log[axis=y]`, as of this call: none where the server has no chunk loaded there. |
 | `get-biome` | `func(dimension: string, x: s32, y: s32, z: s32) -> option<string>` | The biome at a position (`minecraft:plains`, ...), as the server stores it (one per 4 x 4 x 4 cell): none where no chunk is loaded. |
 | `set-blocks` | `func(dimension: string, blocks: list<block-change>) -> result<_, string>` | Sets blocks as `/setblock` does: the old block entity removed, neighbours and shapes updated, light, and every player told. Every state is checked now (an error queues nothing); the changes are made in order after this call returns, before that dimension's next tick; one in a chunk not loaded then is skipped. At most 4096 per call. |
+| `destroy-blocks` | `func(dimension: string, positions: list<tuple<s32, s32, s32>>) -> result<_, string>` | Breaks blocks as a player's hand would, without the hand: the block's loot dropped as items where it stood (its container's contents too), the break's particles and sound, then air, neighbours and light updated. Air and fluids are left. Made in order after this call returns, with the `set-blocks` of this tick in the order they were asked for; one in a chunk not loaded then is skipped. At most 256 per call. (Machines that dig: a drill, a saw.) |
 
 ## `server-events`
 
