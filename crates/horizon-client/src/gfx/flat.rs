@@ -297,20 +297,23 @@ impl Flat {
             },
         );
         let compute_pipeline = |layout: &wgpu::BindGroupLayout, entry| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Flatten section draws"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Flatten section draws"),
-                        bind_group_layouts: &[Some(layout)],
-                        ..Default::default()
-                    }),
-                ),
-                module: &module,
-                entry_point: Some(entry),
-                compilation_options: Default::default(),
-                cache: None,
-            })
+            crate::gfx::compute_pipeline(
+                &device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some("Flatten section draws"),
+                    layout: Some(
+                        &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                            label: Some("Flatten section draws"),
+                            bind_group_layouts: &[Some(layout)],
+                            ..Default::default()
+                        }),
+                    ),
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            )
         };
         let flatten = compute_pipeline(&compute_layout, "flatten");
         let flatten_seen = compute_pipeline(&seen_layout, "flatten_seen");
@@ -933,14 +936,17 @@ mod tests {
             },
         );
         let pipeline = |entry| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
-                layout: None,
-                module: &module,
-                entry_point: Some(entry),
-                compilation_options: Default::default(),
-                cache: None,
-            })
+            crate::gfx::compute_pipeline(
+                &device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: None,
+                    layout: None,
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            )
         };
         let (flatten, flatten_seen) = (pipeline("flatten"), pipeline("flatten_seen"));
         let read_back = |buffer: &wgpu::Buffer, words: u64| -> Vec<u32> {

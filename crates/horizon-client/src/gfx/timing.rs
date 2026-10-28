@@ -118,14 +118,17 @@ impl GpuTimer {
                     },
                 );
                 Markers {
-                    start: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                        label: Some("Frame timestamp"),
-                        layout: None,
-                        module: &module,
-                        entry_point: Some("mark"),
-                        compilation_options: Default::default(),
-                        cache: None,
-                    }),
+                    start: crate::gfx::compute_pipeline(
+                        &device,
+                        &wgpu::ComputePipelineDescriptor {
+                            label: Some("Frame timestamp"),
+                            layout: None,
+                            module: &module,
+                            entry_point: Some("mark"),
+                            compilation_options: Default::default(),
+                            cache: None,
+                        },
+                    ),
                     module,
                     end: None,
                 }
@@ -262,29 +265,32 @@ pub(super) fn end_pipeline(
     module: &wgpu::ShaderModule,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Frame timestamp"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module,
-            entry_point: Some("cover"),
-            compilation_options: Default::default(),
-            buffers: &[],
+    crate::gfx::render_pipeline(
+        &device,
+        &wgpu::RenderPipelineDescriptor {
+            label: Some("Frame timestamp"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("cover"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: Some("nothing"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::empty(),
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
         },
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some("nothing"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::empty(),
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    })
+    )
 }

@@ -581,12 +581,29 @@ pub(crate) fn shader_module(
     device: &wgpu::Device,
     desc: wgpu::ShaderModuleDescriptor<'_>,
 ) -> wgpu::ShaderModule {
+    deep_stack(|| device.create_shader_module(desc))
+}
+/// `Device::create_render_pipeline` as [`shader_module`]: Metal translates the shaders (naga's MSL writer,
+/// recursive too) when the pipeline is made.
+pub(crate) fn render_pipeline(
+    device: &wgpu::Device,
+    desc: &wgpu::RenderPipelineDescriptor<'_>,
+) -> wgpu::RenderPipeline {
+    deep_stack(|| device.create_render_pipeline(desc))
+}
+pub(crate) fn compute_pipeline(
+    device: &wgpu::Device,
+    desc: &wgpu::ComputePipelineDescriptor<'_>,
+) -> wgpu::ComputePipeline {
+    deep_stack(|| device.create_compute_pipeline(desc))
+}
+fn deep_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("horizon-shader".into())
             .stack_size(16 << 20)
-            .spawn_scoped(scope, || device.create_shader_module(desc))
-            .expect("a thread to parse a shader on")
+            .spawn_scoped(scope, work)
+            .expect("a thread to build shaders on")
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     })
@@ -1294,48 +1311,51 @@ impl Renderer {
                            depth_write: bool,
                            depth_test: bool,
                            blend: Option<wgpu::BlendState>| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vertex),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology,
-                    cull_mode: cull,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(depth_write),
-                    depth_compare: Some(if depth_test {
-                        wgpu::CompareFunction::GreaterEqual
-                    } else {
-                        wgpu::CompareFunction::Always
-                    }),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(fragment),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &sprite_constants,
+            crate::gfx::render_pipeline(
+                &device,
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vertex),
+                        compilation_options: Default::default(),
+                        buffers,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology,
+                        cull_mode: cull,
                         ..Default::default()
                     },
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format.remove_srgb_suffix(),
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: Some(depth_write),
+                        depth_compare: Some(if depth_test {
+                            wgpu::CompareFunction::GreaterEqual
+                        } else {
+                            wgpu::CompareFunction::Always
+                        }),
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fragment),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &sprite_constants,
+                            ..Default::default()
+                        },
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: config.format.remove_srgb_suffix(),
+                            blend,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                },
+            )
         };
         let pipeline = |label: &str,
                         vertex: &str,
@@ -1800,44 +1820,47 @@ impl Renderer {
                                     clouds,
                                     fragment: &str,
                                     write_mask| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(if clouds {
-                    &cloud_layout
-                } else {
-                    &entity_layout
-                }),
-                vertex: wgpu::VertexState {
-                    module: &entity_shader,
-                    entry_point: Some(if clouds { "vs_cloud" } else { "vs_entity" }),
-                    compilation_options: Default::default(),
-                    buffers: &entity_vertex,
+            crate::gfx::render_pipeline(
+                &device,
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(if clouds {
+                        &cloud_layout
+                    } else {
+                        &entity_layout
+                    }),
+                    vertex: wgpu::VertexState {
+                        module: &entity_shader,
+                        entry_point: Some(if clouds { "vs_cloud" } else { "vs_entity" }),
+                        compilation_options: Default::default(),
+                        buffers: &entity_vertex,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        cull_mode,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: Some(depth_write),
+                        depth_compare: Some(compare),
+                        stencil: Default::default(),
+                        bias,
+                    }),
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &entity_shader,
+                        entry_point: Some(fragment),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: config.format.remove_srgb_suffix(),
+                            blend: Some(blend),
+                            write_mask,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
                 },
-                primitive: wgpu::PrimitiveState {
-                    cull_mode,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(depth_write),
-                    depth_compare: Some(compare),
-                    stencil: Default::default(),
-                    bias,
-                }),
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &entity_shader,
-                    entry_point: Some(fragment),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format.remove_srgb_suffix(),
-                        blend: Some(blend),
-                        write_mask,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+            )
         };
         let entity_pipeline = |label, cull_mode, depth_write, compare, bias, blend, clouds| {
             entity_pipeline_with(
@@ -1917,8 +1940,9 @@ impl Renderer {
             false,
         );
         // The glowing entities' outline (OutlineBufferSource, PostChain entity_outline).
-        let outline_shape_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let outline_shape_pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
                 label: Some("Entity outline shapes"),
                 layout: Some(&entity_layout),
                 vertex: wgpu::VertexState {
@@ -1943,7 +1967,8 @@ impl Renderer {
                 }),
                 multiview_mask: None,
                 cache: None,
-            });
+            },
+        );
         let outline_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Entity outline"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -1964,37 +1989,40 @@ impl Renderer {
                 source: wgpu::ShaderSource::Wgsl(include_str!("gfx/outline.wgsl").into()),
             },
         );
-        let outline_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Entity outline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Entity outline"),
-                    bind_group_layouts: &[Some(&outline_layout)],
-                    immediate_size: 0,
+        let outline_pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Entity outline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Entity outline"),
+                        bind_group_layouts: &[Some(&outline_layout)],
+                        immediate_size: 0,
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &outline_shader,
+                    entry_point: Some("vs_outline"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &outline_shader,
+                    entry_point: Some("fs_outline"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format.remove_srgb_suffix(),
+                        blend: Some(alpha_blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
-            ),
-            vertex: wgpu::VertexState {
-                module: &outline_shader,
-                entry_point: Some("vs_outline"),
-                compilation_options: Default::default(),
-                buffers: &[],
+                multiview_mask: None,
+                cache: None,
             },
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &outline_shader,
-                entry_point: Some("fs_outline"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format.remove_srgb_suffix(),
-                    blend: Some(alpha_blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        );
         let entity_pipeline = entity_pipeline(
             "Entities",
             None,
@@ -2059,64 +2087,70 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         };
-        let additive_pipeline = device.create_render_pipeline(&additive_descriptor);
-        let lightning_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Lightning"),
-            vertex: wgpu::VertexState {
-                entry_point: Some("vs_lightning"),
-                buffers: &lightning_vertex,
-                ..additive_descriptor.vertex.clone()
+        let additive_pipeline = crate::gfx::render_pipeline(&device, &additive_descriptor);
+        let lightning_pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Lightning"),
+                vertex: wgpu::VertexState {
+                    entry_point: Some("vs_lightning"),
+                    buffers: &lightning_vertex,
+                    ..additive_descriptor.vertex.clone()
+                },
+                ..additive_descriptor
             },
-            ..additive_descriptor
-        });
-        let celestial_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Celestial bodies"),
-            layout: Some(&entity_layout),
-            vertex: wgpu::VertexState {
-                module: &entity_shader,
-                entry_point: Some("vs_entity"),
-                compilation_options: Default::default(),
-                buffers: &entity_vertex,
+        );
+        let celestial_pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Celestial bodies"),
+                layout: Some(&entity_layout),
+                vertex: wgpu::VertexState {
+                    module: &entity_shader,
+                    entry_point: Some("vs_entity"),
+                    compilation_options: Default::default(),
+                    buffers: &entity_vertex,
+                },
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &entity_shader,
+                    entry_point: Some("fs_celestial"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format.remove_srgb_suffix(),
+                        // RenderPipelines.CELESTIAL: additive (src alpha, one). The
+                        // alpha goes to 0: HDR output (hdr.wgsl) lets the sun and
+                        // moon shine; nothing else reads the frame's alpha.
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::Zero,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
             },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &entity_shader,
-                entry_point: Some("fs_celestial"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format.remove_srgb_suffix(),
-                    // RenderPipelines.CELESTIAL: additive (src alpha, one). The
-                    // alpha goes to 0: HDR output (hdr.wgsl) lets the sun and
-                    // moon shine; nothing else reads the frame's alpha.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::Zero,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        );
         // WorldBorderRenderer: misc/forcefield.png as a MipmappedTexture
         // (repeat, linear minification with mipmaps, nearest magnification).
         let forcefield_size = forcefield.1;
@@ -2236,59 +2270,63 @@ impl Renderer {
         let border_attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2];
         // RenderPipelines.WORLD_BORDER: BlendFunction.OVERLAY, no culling,
         // depth writes with a polygon offset of 3 towards the camera.
-        let border_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("World border"),
-            layout: Some(&border_layout),
-            vertex: wgpu::VertexState {
-                module: &border_shader,
-                entry_point: Some("vs_border"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<crate::border_render::BorderVertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &border_attributes,
-                })],
-            },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 3,
-                    slope_scale: 3.0,
-                    clamp: 0.0,
+        let border_pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("World border"),
+                layout: Some(&border_layout),
+                vertex: wgpu::VertexState {
+                    module: &border_shader,
+                    entry_point: Some("vs_border"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<crate::border_render::BorderVertex>()
+                            as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &border_attributes,
+                    })],
                 },
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &border_shader,
-                entry_point: Some("fs_border"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format.remove_srgb_suffix(),
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::Zero,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 3,
+                        slope_scale: 3.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &border_shader,
+                    entry_point: Some("fs_border"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format.remove_srgb_suffix(),
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::Zero,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            },
+        );
         let screen_shader = crate::gfx::shader_module(
             &device,
             wgpu::ShaderModuleDescriptor {
@@ -2331,34 +2369,37 @@ impl Renderer {
                 constants: &constants,
                 ..Default::default()
             };
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Screen effects"),
-                layout: Some(&entity_layout),
-                vertex: wgpu::VertexState {
-                    module: &screen_shader,
-                    entry_point: Some("vs_screen"),
-                    compilation_options: compilation_options.clone(),
-                    buffers: &screen_vertex,
+            crate::gfx::render_pipeline(
+                &device,
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("Screen effects"),
+                    layout: Some(&entity_layout),
+                    vertex: wgpu::VertexState {
+                        module: &screen_shader,
+                        entry_point: Some("vs_screen"),
+                        compilation_options: compilation_options.clone(),
+                        buffers: &screen_vertex,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        cull_mode: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &screen_shader,
+                        entry_point: Some(entry),
+                        compilation_options,
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: config.format.remove_srgb_suffix(),
+                            blend: Some(blend),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
                 },
-                primitive: wgpu::PrimitiveState {
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &screen_shader,
-                    entry_point: Some(entry),
-                    compilation_options,
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format.remove_srgb_suffix(),
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+            )
         });
         let screen_capacity = 64;
         let screen_buffer = device.create_buffer(&wgpu::BufferDescriptor {

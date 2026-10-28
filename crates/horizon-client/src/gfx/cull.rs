@@ -282,37 +282,40 @@ impl Cull {
             ),
             DepthTest::InShader => ("fs_box", &[][..], wgpu::CompareFunction::Always),
         };
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Section culling"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_box"),
-                compilation_options: Default::default(),
-                buffers: &[],
+        let pipeline = crate::gfx::render_pipeline(
+            &device,
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Section culling"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_box"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                // The world pass's reversed depth test, without writes.
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(depth_compare),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some(fragment_entry),
+                    compilation_options: Default::default(),
+                    targets,
+                }),
+                multiview_mask: None,
+                cache: None,
             },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            // The world pass's reversed depth test, without writes.
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(depth_compare),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some(fragment_entry),
-                compilation_options: Default::default(),
-                targets,
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        );
         Self {
             pipeline,
             layout,
