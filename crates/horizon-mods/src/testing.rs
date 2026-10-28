@@ -759,7 +759,11 @@ impl Step {
         }
         if let Some(want) = &e.destroyed {
             let want: Vec<(i32, i32, i32)> = want.iter().map(|a| (a.x, a.y, a.z)).collect();
-            same("destroyed", &want, &game.destroyed[destroyed_before..].to_vec())?;
+            same(
+                "destroyed",
+                &want,
+                &game.destroyed[destroyed_before..].to_vec(),
+            )?;
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());
