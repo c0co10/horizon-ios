@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": "minecraft:andesite",
+    "N": "minecraft:iron_nugget"
+  },
+  "pattern": [
+    "AN",
+    "NA"
+  ],
+  "result": {
+    "id": "create:andesite_alloy",
+    "count": 1
+  }
+}

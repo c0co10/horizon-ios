@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "P": "minecraft:piston",
+    "C": "create:andesite_casing",
+    "S": "create:shaft"
+  },
+  "pattern": [
+    "P",
+    "C",
+    "S"
+  ],
+  "result": {
+    "id": "create:mechanical_piston",
+    "count": 1
+  }
+}

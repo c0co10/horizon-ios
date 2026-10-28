@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=x": {
+      "model": "create:block/piston_extension_pole",
+      "x": 90,
+      "y": 90
+    },
+    "axis=y": {
+      "model": "create:block/piston_extension_pole"
+    },
+    "axis=z": {
+      "model": "create:block/piston_extension_pole",
+      "x": 90
+    }
+  }
+}

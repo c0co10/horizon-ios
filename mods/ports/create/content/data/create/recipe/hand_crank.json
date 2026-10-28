@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "P": "#minecraft:planks",
+    "A": "create:andesite_alloy"
+  },
+  "pattern": [
+    "PPP",
+    "  A"
+  ],
+  "result": {
+    "id": "create:hand_crank",
+    "count": 1
+  }
+}

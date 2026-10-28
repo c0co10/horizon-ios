@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "create:speedometer",
+    "minecraft:redstone"
+  ],
+  "result": {
+    "id": "create:stressometer",
+    "count": 1
+  }
+}

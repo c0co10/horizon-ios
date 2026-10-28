@@ -1,0 +1,10 @@
+{
+  "values": [
+    "create:mechanical_drill",
+    "create:mechanical_drill_spinning",
+    "create:mechanical_saw",
+    "create:mechanical_saw_spinning",
+    "create:shaft",
+    "create:shaft_spinning"
+  ]
+}

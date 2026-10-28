@@ -1,0 +1,13 @@
+# Create for Horizon: the server half. It turns the blocks of the content
+# half (`create`, ../content): rotation through shafts, cogwheels and
+# gearboxes, the sources that make it (hand crank, water wheel, windmill,
+# creative motor), stress, and the machines it drives (drill, saw,
+# mechanical piston). See ../README.md.
+id = "create_kinetics"
+name = "Create: Kinetics"
+version = "0.1.0"
+description = "Rotation networks, stress and machines for the Create port: /create help"
+authors = ["The Create team (original mod, MIT code)", "Horizon port (code and art redone)"]
+api = "0.3"
+side = "server"
+capabilities = ["players", "world", "storage"]

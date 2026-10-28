@@ -1,0 +1,116 @@
+# The kinetics in the test server's world: a crank turns a line of shafts,
+# a motor drives a drill, a stressed network stops, a piston moves.
+
+[[step]]
+join = "Alex"
+command = "create help"
+expect.commands = ["create"]
+expect.feedback = "/create info [pos]: speed and stress of the machine at pos, or the nearest one. /create motor <pos> <rpm>: a creative motor's speed (-256 to 256). /create networks: the rotation networks in this dimension."
+
+# A hand crank, turned on, on top of two shafts: placing the crank is how the
+# mod first sees them.
+[[step]]
+blocks = [
+    { x = 2, y = 66, z = 0, state = "create:hand_crank[face=floor,facing=north,powered=true]" },
+    { x = 2, y = 65, z = 0, state = "create:shaft[axis=y,waterlogged=false]" },
+    { x = 2, y = 64, z = 0, state = "create:shaft[axis=y,waterlogged=false]" },
+]
+place = { x = 2, y = 66, z = 0, state = "create:hand_crank[face=floor,facing=north,powered=true]" }
+
+[[step]]
+ticks = 8
+expect.blocks = [
+    { x = 2, y = 65, z = 0, state = "create:shaft_spinning[axis=y,waterlogged=false]" },
+    { x = 2, y = 64, z = 0, state = "create:shaft_spinning[axis=y,waterlogged=false]" },
+]
+
+[[step]]
+command = "create info 2 64 0"
+expect.feedback = "Shaft at 2 64 0: 32 RPM (counter-clockwise). Network: 3 parts, stress 0 of 256 SU"
+
+# The crank let go: the shafts stop and look still.
+[[step]]
+blocks = [{ x = 2, y = 66, z = 0, state = "create:hand_crank[face=floor,facing=north,powered=false]" }]
+ticks = 8
+expect.blocks = [
+    { x = 2, y = 65, z = 0, state = "create:shaft[axis=y,waterlogged=false]" },
+    { x = 2, y = 64, z = 0, state = "create:shaft[axis=y,waterlogged=false]" },
+]
+
+# A creative motor at full speed drives a drill into stone.
+[[step]]
+blocks = [
+    { x = 10, y = 64, z = 0, state = "create:creative_motor[facing=east]" },
+    { x = 11, y = 64, z = 0, state = "create:mechanical_drill[facing=east]" },
+    { x = 12, y = 64, z = 0, state = "minecraft:stone" },
+]
+command = "create motor 10 64 0 256"
+expect.feedback = "Creative motor at 10 64 0 set to 256 RPM"
+
+[[step]]
+ticks = 12
+expect.destroyed = [{ x = 12, y = 64, z = 0 }]
+expect.blocks = [
+    { x = 11, y = 64, z = 0, state = "create:mechanical_drill_spinning[facing=east]" },
+    { x = 12, y = 64, z = 0, state = "minecraft:air" },
+]
+
+[[step]]
+command = "create info 11 64 0"
+expect.feedback = "Mechanical Drill at 11 64 0: 256 RPM (counter-clockwise). Network: 2 parts, stress 1024 of unlimited SU"
+
+# One crank carries 256 SU: two drills at 32 RPM take it all, a third
+# stops the network.
+[[step]]
+blocks = [
+    { x = 20, y = 66, z = 0, state = "create:hand_crank[face=floor,facing=north,powered=true]" },
+    { x = 20, y = 65, z = 0, state = "create:gearbox[axis=x]" },
+    { x = 20, y = 65, z = 1, state = "create:mechanical_drill[facing=south]" },
+    { x = 20, y = 65, z = -1, state = "create:mechanical_drill[facing=north]" },
+]
+place = { x = 20, y = 66, z = 0, state = "create:hand_crank[face=floor,facing=north,powered=true]" }
+
+[[step]]
+ticks = 8
+expect.blocks = [{ x = 20, y = 65, z = 1, state = "create:mechanical_drill_spinning[facing=south]" }]
+
+[[step]]
+blocks = [{ x = 20, y = 64, z = 0, state = "create:mechanical_saw[facing=down]" }]
+ticks = 8
+expect.blocks = [{ x = 20, y = 65, z = 1, state = "create:mechanical_drill[facing=south]" }]
+
+[[step]]
+command = "create info 20 65 0"
+expect.feedback = "Gearbox at 20 65 0: stopped: overstressed. Network: 5 parts, stress 384 of 256 SU"
+
+# A mechanical piston with two poles behind it pushes a block two out.
+[[step]]
+blocks = [
+    { x = 30, y = 65, z = 0, state = "create:creative_motor[facing=down]" },
+    { x = 30, y = 64, z = 0, state = "create:mechanical_piston[facing=east]" },
+    { x = 29, y = 64, z = 0, state = "create:piston_extension_pole[axis=x,waterlogged=false]" },
+    { x = 28, y = 64, z = 0, state = "create:piston_extension_pole[axis=x,waterlogged=false]" },
+    { x = 31, y = 64, z = 0, state = "minecraft:cobblestone" },
+]
+command = "create motor 30 65 0 -256"
+
+[[step]]
+ticks = 40
+expect.blocks = [
+    { x = 28, y = 64, z = 0, state = "minecraft:air" },
+    { x = 29, y = 64, z = 0, state = "create:piston_extension_pole[axis=x,waterlogged=false]" },
+    { x = 31, y = 64, z = 0, state = "create:piston_extension_pole[axis=x,waterlogged=false]" },
+    { x = 32, y = 64, z = 0, state = "create:mechanical_piston_head[facing=east]" },
+    { x = 33, y = 64, z = 0, state = "minecraft:cobblestone" },
+]
+
+# Broken, the piston takes its poles in front with it and its head goes.
+[[step]]
+blocks = [{ x = 30, y = 64, z = 0, state = "minecraft:air" }]
+break = { x = 30, y = 64, z = 0, state = "create:mechanical_piston[facing=east]" }
+expect.destroyed = [{ x = 31, y = 64, z = 0 }]
+expect.blocks = [
+    { x = 31, y = 64, z = 0, state = "minecraft:air" },
+    { x = 32, y = 64, z = 0, state = "minecraft:air" },
+    { x = 33, y = 64, z = 0, state = "minecraft:cobblestone" },
+]

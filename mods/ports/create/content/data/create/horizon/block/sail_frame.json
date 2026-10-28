@@ -1,0 +1,7 @@
+{
+  "template": "minecraft:glass",
+  "properties": {
+    "hardness": 0.8,
+    "sounds": "minecraft:oak_planks"
+  }
+}

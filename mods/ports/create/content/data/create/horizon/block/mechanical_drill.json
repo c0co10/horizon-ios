@@ -1,0 +1,8 @@
+{
+  "template": "minecraft:end_rod",
+  "properties": {
+    "hardness": 2.0,
+    "light": 0,
+    "sounds": "minecraft:iron_block"
+  }
+}

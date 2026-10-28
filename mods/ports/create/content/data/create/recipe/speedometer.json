@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "create:andesite_casing",
+    "minecraft:compass"
+  ],
+  "result": {
+    "id": "create:speedometer",
+    "count": 1
+  }
+}

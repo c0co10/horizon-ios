@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "lit=false": {
+      "model": "create:block/clutch"
+    },
+    "lit=true": {
+      "model": "create:block/clutch_on"
+    }
+  }
+}

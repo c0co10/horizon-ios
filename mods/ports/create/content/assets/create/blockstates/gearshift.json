@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "lit=false": {
+      "model": "create:block/gearshift"
+    },
+    "lit=true": {
+      "model": "create:block/gearshift_on"
+    }
+  }
+}
