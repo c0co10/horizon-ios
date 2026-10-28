@@ -40,6 +40,7 @@ fn into_app_sandbox() -> Result<std::path::PathBuf, String> {
 fn main() {
     // Before the event loop: iOS asks for the AirPlay scene's delegate by name when a display connects.
     horizon_airplay::register();
+    horizon_airplay::audio::start();
     std::hint::black_box(&MOD_API_LEVEL);
     #[cfg(target_os = "ios")]
     let documents = match into_app_sandbox() {
@@ -65,6 +66,10 @@ fn main() {
     if !help {
         logging::init(&home, thread);
         crash::install(home.clone(), side);
+        // The Microsoft account a last start kept (the title screen's face button), signed in again.
+        if side == "client" {
+            horizon_client::msa::restore(&home);
+        }
     }
     // What a phone does with its files before the game looks for them, once the log can say so.
     #[cfg(any(target_os = "ios", target_os = "android"))]

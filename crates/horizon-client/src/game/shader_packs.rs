@@ -104,15 +104,6 @@ fn command(
         json!({"packs":list,"selected":selected,"runtime":report}),
     ))
 }
-/// File-only form used while the resource loader is covered by the native launcher.
-pub(super) fn shader_pack_command(
-    words: &[&str],
-    line: &str,
-) -> horizon_client::Result<Option<Value>> {
-    let root = std::env::current_dir()?;
-    let mut settings = horizon_client::settings::Settings::load(&root.join("options.txt"));
-    command(&mut settings, words, line)
-}
 
 /// The ids a pack gives entities and block entities (4.1, 5.3), for the spans of the entity
 /// geometry.

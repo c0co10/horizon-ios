@@ -4,7 +4,6 @@ members = [
     "crates/horizon-core",
     "crates/horizon-dualsense",
     "crates/horizon-gamecontroller",
-    "crates/horizon-ios-launcher",
     "crates/horizon-ios",
     "crates/horizon-threads",
     "crates/horizon-hdr",

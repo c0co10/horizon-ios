@@ -6,8 +6,8 @@ The game's own map is `CLAUDE.md` (crates, where each subsystem lives, the two s
 | Piece | Where |
 |---|---|
 | Game entry on iOS (cwd = Documents) | `crates/horizon-client/src/main.rs` |
-| SwiftUI launcher + download screen (framework, dlopened) | `packaging/ios/Launcher/*.swift`; `crates/horizon-ios-launcher` (`present`, `present_download`, start gate, `ENABLED=false`) |
-| Launcher requests answered | `game/launcher.rs` (`Game::poll_launcher`, `Loading::poll_launcher`: `launcher-state`, `download-state`, `download-retry`, `shader-pack`, …) |
+| Microsoft sign-in (title screen's face button, no launcher) | `msa.rs` (device code, Xbox Live, Minecraft; refresh token in the game home), `title.rs` `Mode::Account` |
+| The phone's audio session (playback, mixes) | `crates/horizon-airplay/src/audio.rs`, from `main.rs` |
 | Game files: download, resume, install | `import/download.rs` (ETag + If-Range resume), `import.rs` (`Pack::open/install`), `game/import_screen.rs` |
 | Skins without an account | `skins.rs` (`ElySkins`), asked in `game/remote.rs` PlayerInfoUpdate |
 | Shader packs (clean room) | crate `horizon-shaders`, `game/shader_packs.rs`, Options > Horizon Settings > Shader Packs |

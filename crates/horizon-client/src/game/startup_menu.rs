@@ -220,17 +220,6 @@ pub(super) fn spawn_loader(
     let handle = std::thread::Builder::new()
         .name("resource-loader".into())
         .spawn(move || {
-            // iPhone and iPad: nothing loads until the player starts the game from the launcher, whose
-            // Settings and Packs may have changed options.txt meanwhile (its resource packs above all).
-            let settings = if horizon_ios_launcher::wait_for_start() {
-                Settings::load(
-                    &std::env::current_dir()
-                        .unwrap_or_default()
-                        .join("options.txt"),
-                )
-            } else {
-                settings
-            };
             let mut pack_error = None;
             let root = packs::startup_root(&vanilla_root, &settings.resource_packs, &[])
                 .unwrap_or_else(|error| {
@@ -429,12 +418,7 @@ impl Loading {
 
     fn menu_action(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         match action {
-            // iPhone and iPad: an app does not quit itself; Quit Game goes back to the launcher.
-            Action::Quit => {
-                if !horizon_ios_launcher::show() {
-                    event_loop.exit();
-                }
-            }
+            Action::Quit => event_loop.exit(),
             Action::Options => self.open_menu_options(Page::Main),
             Action::Accessibility => self.open_menu_options(Page::Accessibility),
             Action::Language => self.open_menu_options(Page::Language),

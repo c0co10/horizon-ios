@@ -59,10 +59,8 @@ impl Game<'_> {
         self.renderer.as_ref().is_some_and(|r| r.targeted())
     }
 
-    /// `drawing` is false while the launcher covers the game, which the phone must keep showing.
     pub(super) fn sync_airplay(&mut self) {
-        let drawing = !horizon_ios_launcher::covered();
-        let screen = horizon_airplay::screen(drawing, self.splitscreen.active);
+        let screen = horizon_airplay::screen(true, self.splitscreen.active);
         sync(
             self.renderer.as_mut(),
             self.window.as_ref(),

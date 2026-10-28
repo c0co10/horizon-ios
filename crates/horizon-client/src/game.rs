@@ -97,7 +97,6 @@ mod lan_stations;
 mod lan_trading;
 mod lan_vehicles;
 mod lan_waypoints;
-mod launcher;
 mod leads;
 mod level_particles;
 mod levels;
@@ -11943,8 +11942,6 @@ impl ApplicationHandler for Game<'_> {
             Ok(r) => {
                 self.renderer = Some(r);
                 self.world_renderer_ready = true;
-                // iPhone and iPad: the launcher covers the game until Play (horizon-ios-launcher).
-                horizon_ios_launcher::present();
             }
             Err(e) => {
                 self.error = Some(e);
@@ -11958,18 +11955,6 @@ impl ApplicationHandler for Game<'_> {
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if self.window.as_ref().is_none_or(|w| w.id() != id) {
-            return;
-        }
-        if horizon_ios_launcher::covered()
-            && matches!(
-                &event,
-                WindowEvent::KeyboardInput { .. }
-                    | WindowEvent::MouseInput { .. }
-                    | WindowEvent::MouseWheel { .. }
-                    | WindowEvent::CursorMoved { .. }
-                    | WindowEvent::Touch(_)
-            )
-        {
             return;
         }
         if let WindowEvent::KeyboardInput { event, .. } = &event
@@ -12313,12 +12298,7 @@ impl ApplicationHandler for Game<'_> {
                         self.audio.play_button_click();
                     }
                     match action {
-                        // iPhone and iPad: an app does not quit itself; Quit Game goes back to the launcher.
-                        Action::Quit => {
-                            if !horizon_ios_launcher::show() {
-                                event_loop.exit();
-                            }
-                        }
+                        Action::Quit => event_loop.exit(),
                         Action::Options => self.open_options(true),
                         Action::Accessibility => self
                             .open_options_at(true, horizon_client::options_ui::Page::Accessibility),
@@ -12677,9 +12657,6 @@ impl ApplicationHandler for Game<'_> {
                     }
                 }
                 WindowEvent::RedrawRequested => {
-                    if horizon_ios_launcher::covered() {
-                        return Ok(());
-                    }
                     self.observe_fullscreen();
                     let now = Instant::now();
                     let frame_cpu = self
@@ -12874,9 +12851,6 @@ impl ApplicationHandler for Game<'_> {
         }
     }
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
-        if horizon_ios_launcher::covered() {
-            return;
-        }
         if matches!(
             &event,
             DeviceEvent::MouseMotion { .. }
@@ -12926,19 +12900,9 @@ impl ApplicationHandler for Game<'_> {
         if !self.splitscreen.guest {
             self.tick_server_packs();
             self.poll_control(event_loop);
-            self.poll_launcher(event_loop);
             self.sync_airplay();
         }
         if self.pending_save.is_some() {
-            return;
-        }
-        if horizon_ios_launcher::covered() {
-            self.poll_shader_workers();
-            self.capture(false);
-            self.previous = Instant::now();
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(33),
-            ));
             return;
         }
         #[cfg(target_os = "ios")]
@@ -13531,13 +13495,12 @@ impl Game<'_> {
         if self.rest_loader.is_some() {
             return Ok(());
         }
-        let on_world_screens = !horizon_ios_launcher::covered()
-            && self.title.as_ref().is_some_and(|title| {
-                !matches!(
-                    title.mode,
-                    horizon_client::title::Mode::Main | horizon_client::title::Mode::Multiplayer(_)
-                )
-            });
+        let on_world_screens = self.title.as_ref().is_some_and(|title| {
+            !matches!(
+                title.mode,
+                horizon_client::title::Mode::Main | horizon_client::title::Mode::Multiplayer(_)
+            )
+        });
         world_loading::preload_world_data(
             on_world_screens,
             &self.options.resources,
@@ -14406,8 +14369,6 @@ impl Loading {
         ) {
             Ok(r) => {
                 self.renderer = Some(r);
-                // iPhone and iPad: the launcher covers the game from its first window until Play.
-                horizon_ios_launcher::present();
             }
             Err(e) => {
                 self.error = Some(e);
@@ -14473,9 +14434,7 @@ impl Loading {
             self.poll_import()
         } else {
             self.poll_menu_resources()
-        }
-        .and_then(|()| self.poll_launcher())
-        {
+        } {
             self.error = Some(error);
             event_loop.exit();
             return;
@@ -14484,14 +14443,8 @@ impl Loading {
             self.renderer.as_mut(),
             self.window.as_ref(),
             &mut self.airplay,
-            horizon_airplay::screen(!horizon_ios_launcher::covered(), false),
+            horizon_airplay::screen(true, false),
         );
-        if horizon_ios_launcher::covered() {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(33),
-            ));
-            return;
-        }
         if let Some(w) = &self.window {
             if self.options.as_ref().is_some_and(|o| o.offscreen) {
                 self.draw();
@@ -14502,9 +14455,6 @@ impl Loading {
         event_loop.set_control_flow(ControlFlow::Poll);
     }
     fn draw(&mut self) {
-        if horizon_ios_launcher::covered() {
-            return;
-        }
         let Some(size) = self
             .renderer
             .as_ref()

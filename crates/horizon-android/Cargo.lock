@@ -1270,7 +1270,6 @@ dependencies = [
  "horizon-core",
  "horizon-friends",
  "horizon-gamecontroller",
- "horizon-ios-launcher",
  "horizon-mods",
  "horizon-protocol",
  "horizon-shader-api",
@@ -1323,7 +1322,6 @@ dependencies = [
  "horizon-friends",
  "horizon-gamecontroller",
  "horizon-hdr",
- "horizon-ios-launcher",
  "horizon-mods",
  "horizon-protocol",
  "horizon-server-files",
@@ -1412,14 +1410,6 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "wgpu",
-]
-
-[[package]]
-name = "horizon-ios-launcher"
-version = "0.1.0"
-dependencies = [
- "libc",
- "log",
 ]
 
 [[package]]

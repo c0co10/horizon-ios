@@ -30,7 +30,6 @@ horizon-mods = { path = "../horizon-mods", default-features = false }
 horizon-telemetry = { path = "../horizon-telemetry", default-features = false, features = ["live"] }
 horizon-bench = { path = "../horizon-bench" }
 horizon-gamecontroller = { path = "../horizon-gamecontroller" }
-horizon-ios-launcher = { path = "../horizon-ios-launcher" }
 horizon-airplay = { path = "../horizon-airplay" }
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "wgsl", "naga-ir"] }
 # NativeActivity: an app with no Java in it (packaging/android/AndroidManifest.xml).

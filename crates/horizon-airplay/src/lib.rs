@@ -11,6 +11,8 @@
 //!
 //! The game forbids `unsafe`, so the Objective-C lives here. Elsewhere [`screen`] is always `None`.
 
+pub mod audio;
+
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
