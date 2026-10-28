@@ -123,6 +123,7 @@ mod model_library;
 pub mod models;
 pub mod motion;
 pub mod mouse;
+pub mod msa;
 pub mod moved_extras;
 pub mod multiplayer;
 pub mod music;

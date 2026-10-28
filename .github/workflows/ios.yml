@@ -1,7 +1,6 @@
 name: ios
 # The game for iPhone and iPad, and nothing else: the Rust game cross-compiled for aarch64-apple-ios, wrapped by
-# packaging/ios/project.yml's HorizonGame target (which embeds the SwiftUI launcher, a framework only Xcode builds),
-# and uploaded as an unsigned .ipa. No tests run here. The .ipa is then posted to Discord when the repository secret
+# packaging/ios/project.yml's HorizonGame target, and uploaded as an unsigned .ipa. No tests run here. The .ipa is then posted to Discord when the repository secret
 # DISCORD_IPA_WEBHOOK is set.
 on:
   push:
@@ -35,14 +34,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Give the launcher its Microsoft sign-in app
-        # A repository variable overrides the one GameInfo.plist carries; unset, the plist's stays.
-        env:
-          CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
-        run: |
-          if [ -n "$CLIENT_ID" ]; then
-            /usr/libexec/PlistBuddy -c "Set :HorizonMSAClientID $CLIENT_ID" packaging/ios/GameInfo.plist
-          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.IOS_TARGET }}
@@ -51,10 +42,13 @@ jobs:
         with:
           shared-key: ios-${{ env.IOS_TARGET }}
       - name: Build the game
+        # The Microsoft sign-in app (msa.rs): a repository variable overrides the built-in one; unset, it stays.
+        env:
+          HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
         # The defaults minus `controllers` (GameController reads pads), with `audio`: project.yml's Cargo phase
         # uses the same flags, so HORIZON_GAME_PREBUILT below finds this build.
         run: cargo build --release --locked --target "$IOS_TARGET" -p horizon-client --no-default-features --features audio
-      - name: Bundle it with the launcher
+      - name: Bundle it
         run: |
           set -euo pipefail
           command -v xcodegen >/dev/null || brew install xcodegen

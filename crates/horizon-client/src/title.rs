@@ -101,6 +101,8 @@ pub enum Mode {
         return_to: Box<Mode>,
     },
     Multiplayer(crate::multiplayer::Screen),
+    /// Horizon's Microsoft account page (`msa`): sign in with a code, or out.
+    Account,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -627,7 +629,8 @@ impl Title {
                     ),
                 ];
                 // CommonButtons' icon buttons; Horizon's Join a Friend (an
-                // invite code) sits behind vanilla's Friends button.
+                // invite code) sits behind vanilla's Friends button, and its
+                // Microsoft account (a face, `ACCOUNT_ICON`) after them.
                 for (i, (key, plain, id, icon)) in [
                     ("gui.friends.open", "Friends", 5, "friends/friends"),
                     ("options.language", "Language...", 6, "icon/language"),
@@ -637,12 +640,13 @@ impl Title {
                         7,
                         "icon/accessibility",
                     ),
+                    ("horizon.account", "Microsoft Account", 8, ACCOUNT_ICON),
                 ]
                 .into_iter()
                 .enumerate()
                 {
                     let mut button = b(
-                        cx - 34.0 + i as f32 * 24.0,
+                        cx - 46.0 + i as f32 * 24.0,
                         y + 72.0,
                         20.0,
                         &lang::get_or(key, plain),
@@ -789,6 +793,28 @@ impl Title {
                         &lang::get_or("gui.cancel", "Cancel"),
                         true,
                         38,
+                    ),
+                ]
+            }
+            Mode::Account => {
+                let signed_in = crate::auth::current().is_some();
+                let top = (h / 4.0).floor() + 48.0;
+                vec![
+                    b(
+                        (w / 2.0).floor() - 100.0,
+                        top + 72.0,
+                        200.0,
+                        if signed_in { "Sign Out" } else { "Sign In" },
+                        !matches!(crate::msa::state(), crate::msa::State::Working(_)),
+                        40,
+                    ),
+                    b(
+                        (w / 2.0).floor() - 100.0,
+                        top + 96.0,
+                        200.0,
+                        &lang::get_or("gui.done", "Done"),
+                        true,
+                        41,
                     ),
                 ]
             }
@@ -1104,6 +1130,36 @@ impl Title {
                     );
                 }
             }
+            Mode::Account => {
+                crate::ui::menu_background(batch, atlas, 0.0, 0.0, w, h, false);
+                let top = (h / 4.0).floor() + 48.0;
+                centered(atlas, batch, "Microsoft Account", top - 28.0, u32::MAX);
+                let grey = rgba(170, 170, 170, 255);
+                let lines: Vec<(String, u32)> = match crate::msa::state() {
+                    crate::msa::State::Code { code, link } => vec![
+                        ("Open this page on any device:".into(), grey),
+                        (link, rgba(85, 255, 255, 255)),
+                        ("and enter the code".into(), grey),
+                        (code, rgba(255, 255, 85, 255)),
+                    ],
+                    crate::msa::State::Working(step) => vec![(step, grey)],
+                    crate::msa::State::Failed(why) => vec![(why, rgba(255, 85, 85, 255))],
+                    _ => match crate::auth::current() {
+                        Some(session) => vec![
+                            ("Signed in as".into(), grey),
+                            (session.name.clone(), u32::MAX),
+                            ("Online-mode servers let you in.".into(), grey),
+                        ],
+                        None => vec![
+                            ("Not signed in: you play offline.".into(), grey),
+                            ("Sign in to join online-mode servers.".into(), grey),
+                        ],
+                    },
+                };
+                for (i, (line, color)) in lines.iter().enumerate() {
+                    centered(atlas, batch, line, top + i as f32 * 14.0, *color);
+                }
+            }
             Mode::Error { message, .. } => {
                 crate::ui::menu_background(batch, atlas, 0.0, 0.0, w, h, false);
                 let lines = wrapped(atlas, message, w - 50.0);
@@ -1157,6 +1213,21 @@ impl Title {
             } else {
                 rgba(160, 160, 160, 255)
             };
+            if b.icon.is_some_and(|(icon, _)| icon == ACCOUNT_ICON) {
+                // PlayerFaceExtractor at 12px: the default skin's face.
+                let mut draws = Vec::new();
+                crate::tab_list::face(
+                    &mut draws,
+                    "entity/player/wide/steve",
+                    b.x as i32 + 4,
+                    b.y as i32 + 4,
+                    12,
+                    true,
+                    false,
+                );
+                crate::hud_layout::paint(batch, atlas, &draws);
+                continue;
+            }
             if let Some((icon, size)) = b.icon {
                 // CenteredIcon divides the button and sprite sizes separately:
                 // a 15px icon in a 20px button starts at 10 - 7 = 3, not 2.
@@ -1259,6 +1330,23 @@ impl Title {
             (Mode::Main, Some(3)) => Action::Options,
             (Mode::Main, Some(7)) => Action::Accessibility,
             (Mode::Main, Some(6)) => Action::Language,
+            (Mode::Main, Some(8)) => {
+                self.mode = Mode::Account;
+                Action::None
+            }
+            (Mode::Account, Some(40)) => {
+                let home = crate::logging::game_home();
+                if crate::auth::current().is_some() {
+                    crate::msa::sign_out(&home);
+                } else {
+                    crate::msa::sign_in(&home);
+                }
+                Action::None
+            }
+            (Mode::Account, Some(41)) => {
+                self.mode = Mode::Main;
+                Action::None
+            }
             (Mode::Select { worlds, selected }, Some(10)) => {
                 match selected.and_then(|i| worlds.get(i)) {
                     Some(world) => Action::Play {
@@ -1600,6 +1688,8 @@ impl Title {
         }
     }
 }
+/// The account button's icon: not a sprite, the player's face (`Title::draw`).
+const ACCOUNT_ICON: &str = "horizon/account";
 fn centered(atlas: &HudAtlas, batch: &mut HudBatch, text: &str, y: f32, color: u32) {
     batch.text(
         atlas,
@@ -1665,9 +1755,10 @@ mod classic_tests {
             let cx = (w / 2.0).floor();
             let y = (h / 4.0).floor() + 48.0;
             for (id, x, enabled, icon) in [
-                (5, cx - 34.0, true, "friends/friends"),
-                (6, cx - 10.0, true, "icon/language"),
-                (7, cx + 14.0, true, "icon/accessibility"),
+                (5, cx - 46.0, true, "friends/friends"),
+                (6, cx - 22.0, true, "icon/language"),
+                (7, cx + 2.0, true, "icon/accessibility"),
+                (8, cx + 26.0, true, ACCOUNT_ICON),
             ] {
                 let b = buttons.iter().find(|b| b.id == id).unwrap();
                 assert_eq!(
@@ -1678,6 +1769,7 @@ mod classic_tests {
                     title.click(x + 10.0, y + 82.0, (w, h)),
                     match id {
                         6 => (Action::Language, true),
+                        8 => (Action::None, true),
                         7 => (Action::Accessibility, true),
                         _ => (Action::None, true),
                     }
@@ -1689,15 +1781,16 @@ mod classic_tests {
                     ));
                     title.mode = Mode::Main;
                 }
+                if id == 8 {
+                    assert!(matches!(title.mode, Mode::Account));
+                    title.mode = Mode::Main;
+                }
             }
             for id in [2, 3] {
                 assert_eq!(buttons.iter().find(|b| b.id == id).unwrap().y, y + 96.0);
             }
             // The four-pixel gaps around icons must not activate a button.
-            assert_eq!(
-                title.click(cx + 12.0, y + 82.0, (w, h)),
-                (Action::None, false)
-            );
+            assert_eq!(title.click(cx, y + 82.0, (w, h)), (Action::None, false));
             assert_eq!(
                 title.click(cx + 24.0, y + 92.0, (w, h)),
                 (Action::None, false)
@@ -1788,7 +1881,7 @@ mod classic_tests {
                 .iter()
                 .find(|quad| quad[0].uv == [0.25 + i as f32 * 0.125, 0.0])
                 .unwrap();
-            let x = cx - 34.0 + i as f32 * 24.0 + 3.0;
+            let x = cx - 46.0 + i as f32 * 24.0 + 3.0;
             let y = (batch.height / 4.0).floor() + 48.0 + 72.0 + 3.0;
             assert_eq!(quad[0].pos, [x, y]);
             assert_eq!(quad[2].pos, [x + 15.0, y + 15.0]);

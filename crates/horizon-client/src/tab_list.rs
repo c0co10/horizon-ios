@@ -96,7 +96,15 @@ fn sprite(name: &'static str, x: i32, y: i32, w: i32, h: i32) -> GuiDraw {
 
 /// `PlayerFaceExtractor.extractRenderState`: the skin's face, then its hat
 /// layer, upside down for Dinnerbone and Grumm.
-fn face(out: &mut Vec<GuiDraw>, skin: &str, x: i32, y: i32, size: i32, hat: bool, flip: bool) {
+pub(crate) fn face(
+    out: &mut Vec<GuiDraw>,
+    skin: &str,
+    x: i32,
+    y: i32,
+    size: i32,
+    hat: bool,
+    flip: bool,
+) {
     let (v, height) = if flip { (16.0, -8) } else { (8.0, 8) };
     for u in [8.0, 40.0].into_iter().take(if hat { 2 } else { 1 }) {
         out.push(GuiDraw::Blit {

@@ -538,6 +538,10 @@ impl Game<'_> {
         };
         match &title.mode {
             Mode::Main => json!({ "mode": "main", "worlds": worlds() }),
+            Mode::Account => json!({
+                "mode": "account",
+                "signed_in": horizon_client::auth::current().map(|s| s.name.clone()),
+            }),
             Mode::Select {
                 worlds: list,
                 selected,
