@@ -14586,14 +14586,19 @@ enum App {
     /// The game, and splitscreen's second player on the phone (game/splitscreen.rs).
     Ready(Box<Game<'static>>, Option<Box<Game<'static>>>),
 }
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+impl App {
+    fn resumed_here(&mut self, event_loop: &ActiveEventLoop) {
         match self {
             App::Loading(loading) => loading.resumed(event_loop),
             App::Ready(game, _) => game.resumed(event_loop),
         }
     }
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    fn window_event_here(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        id: WindowId,
+        event: WindowEvent,
+    ) {
         match self {
             App::Loading(loading) => loading.window_event(event_loop, id, event),
             App::Ready(game, None) => game.window_event(event_loop, id, event),
@@ -14609,12 +14614,17 @@ impl ApplicationHandler for App {
             }
         }
     }
-    fn device_event(&mut self, event_loop: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
+    fn device_event_here(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        id: DeviceId,
+        event: DeviceEvent,
+    ) {
         if let App::Ready(game, _) = self {
             game.device_event(event_loop, id, event);
         }
     }
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait_here(&mut self, event_loop: &ActiveEventLoop) {
         enum Step {
             Waiting,
             Ready(Box<Game<'static>>),
@@ -14671,10 +14681,36 @@ impl ApplicationHandler for App {
             }
         }
     }
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+    fn exiting_here(&mut self, event_loop: &ActiveEventLoop) {
         if let App::Ready(game, _) = self {
             game.exiting(event_loop);
         }
+    }
+}
+
+/// The handlers on a 32 MB stack where the thread has under 1 MB left. An iPhone's main thread has 1 MB in all,
+/// and opening a world alone (`about_to_wait` into `Loading::finish`, `start_game` and `Game::new`, whose
+/// frames hold the 99 KB `Game` more than once) wanted more: a SIGSEGV at the stack guard. A desktop's 8 MB
+/// main thread never switches.
+fn deep<T>(work: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(1 << 20, 32 << 20, work)
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        deep(|| self.resumed_here(event_loop))
+    }
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        deep(|| self.window_event_here(event_loop, id, event))
+    }
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
+        deep(|| self.device_event_here(event_loop, id, event))
+    }
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        deep(|| self.about_to_wait_here(event_loop))
+    }
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        deep(|| self.exiting_here(event_loop))
     }
 }
 

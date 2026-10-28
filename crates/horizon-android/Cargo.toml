@@ -35,6 +35,7 @@ wgpu = { version = "30.0.1", default-features = false, features = ["std", "parki
 # NativeActivity: an app with no Java in it (packaging/android/AndroidManifest.xml).
 winit = { version = "0.30.13", features = ["android-native-activity"] }
 pollster = "0.4"
+stacker = "0.1"
 glam = "0.30"
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 log = "0.4"

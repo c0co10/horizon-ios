@@ -30,6 +30,9 @@ horizon-mods = { path = "../horizon-mods", default-features = false, features = 
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
 winit = "0.30.13"
 pollster = "0.4"
+# A larger stack for the event handlers where the thread's own runs short: an iPhone's main thread has
+# 1 MB, and opening a world wants more (game.rs `deep`).
+stacker = "0.1"
 bytemuck = { version = "1.24", features = ["derive"] }
 glam = "0.30"
 png = "0.18"
